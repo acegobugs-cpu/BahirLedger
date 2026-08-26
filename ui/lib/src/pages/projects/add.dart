@@ -192,7 +192,7 @@ class _AddProjectPageState extends State<AddProjectPage> {
               onPressed: _submitForm,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
-                backgroundColor: Colors.indigo,
+                backgroundColor: Color(0xFF005B7F),
                 foregroundColor: Colors.white,
               ),
               child: const Text('Create Project', style: TextStyle(fontSize: 18)),

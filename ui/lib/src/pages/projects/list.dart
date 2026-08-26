@@ -72,7 +72,7 @@ class _ProjectsState extends State<ProjectsPage> {
         onPressed: _showAddProjectDialog,
         icon: const Icon(Icons.add),
         label: const Text('Add Project'),
-        backgroundColor: Colors.green,
+        backgroundColor: Color(0xFF005B7F),
         foregroundColor: Colors.white,
       ),
       body: Padding(
@@ -91,14 +91,20 @@ class _ProjectsState extends State<ProjectsPage> {
                   final project = _projects[index];
                   return Card(
                     child: ListTile(
-                      leading: const Icon(Icons.folder, color: Colors.indigo),
+                      leading: const Icon(Icons.folder, color: Color(0xFF005B7F)),
                       title: Text(project.name),
                       subtitle: Text(
                         project.manager.isNotEmpty
                             ? 'PM: ${project.manager}'
                             : 'No PM assigned',
                       ),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      trailing: Chip(
+                        label: Text(
+                          project.state.label,
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                        backgroundColor: project.state.color,
+                      ),
                       // Tapping navigates to the Read/Details page
                       onTap: () {
                         Navigator.push(

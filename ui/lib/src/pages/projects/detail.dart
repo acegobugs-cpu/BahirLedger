@@ -18,7 +18,7 @@ class ProjectDetailsPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(project.name),
-        backgroundColor: Colors.indigo,
+        backgroundColor: Color(0xFF005B7F),
         foregroundColor: Colors.white,
       ),
       body: ListView(
@@ -26,7 +26,7 @@ class ProjectDetailsPage extends StatelessWidget {
         children: [
           // Header Card
           Card(
-            color: Colors.indigo.shade50,
+            color: Color(0xFF70B4C8),
             elevation: 0,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -38,7 +38,7 @@ class ProjectDetailsPage extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.indigo,
+                      color: Color(0xFF005B7F),
                     ),
                   ),
                   if (project.description.isNotEmpty) ...[
@@ -112,7 +112,7 @@ class ProjectDetailsPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.indigo),
+          Icon(icon, color: Color(0xFF005B7F)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
