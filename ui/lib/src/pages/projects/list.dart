@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/project_models.dart';
+import '../../data/projects.dart';
 import 'add.dart';
 import 'detail.dart';
 
@@ -14,30 +15,7 @@ class ProjectsPage extends StatefulWidget {
 class _ProjectsState extends State<ProjectsPage> {
 
   // A dynamic list to hold our project names (our local State)
-  final List<Project> _projects = [
-    Project(
-      name: 'Website Redesign',
-      description: 'Overhaul main marketing site.',
-      objective: 'Increase conversion rates by 20%.',
-      location: 'Remote',
-      organization: 'Acme Corp',
-      manager: 'Sarah Connor',
-    ),
-    Project(
-      name: 'Mobile App V1',
-      description: '',
-      objective: '',
-      location: '',
-      organization: '',
-      manager: '',
-    ),
-    Project(
-      name: 'Database Migration',
-      description: '',
-      objective: '',
-      manager: '',
-    )
-  ];
+  final List<Project> _projects = sampleProjects; // Using the sample dataset
 
   // 3. Function to show the input dialog popup
   void _showAddProjectDialog() async {
