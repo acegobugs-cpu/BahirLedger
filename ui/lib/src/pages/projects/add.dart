@@ -1,26 +1,46 @@
 import 'package:flutter/material.dart';
+import '../../models/project_models.dart';
 
 class AddProjectPage extends StatefulWidget {
-  const AddProjectPage({super.key});
+  // Pass an optional project. If null -> Create mode. If provided -> Edit mode.
+  final Project? projectToEdit;
+
+  const AddProjectPage({super.key, this.projectToEdit});
 
   @override
   State<AddProjectPage> createState() => _AddProjectPageState();
 }
 
 class _AddProjectPageState extends State<AddProjectPage> {
-  // Global key to track form state and perform validation
   final _formKey = GlobalKey<FormState>();
 
-  // Text Controllers for input fields
-  final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _objectiveController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _organizationController = TextEditingController();
-  final _managerController = TextEditingController();
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _objectiveController;
+  late final TextEditingController _locationController;
+  late final TextEditingController _organizationController;
+  late final TextEditingController _managerController;
 
   DateTime? _startDate;
   DateTime? _endDate;
+
+  // Convenience getter to check if we are editing
+  bool get _isEditing => widget.projectToEdit != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill controllers with existing project data if editing
+    final project = widget.projectToEdit;
+    _nameController = TextEditingController(text: project?.name ?? '');
+    _descriptionController = TextEditingController(text: project?.description ?? '');
+    _objectiveController = TextEditingController(text: project?.objective ?? '');
+    _locationController = TextEditingController(text: project?.location ?? '');
+    _organizationController = TextEditingController(text: project?.organization ?? '');
+    _managerController = TextEditingController(text: project?.manager ?? '');
+    _startDate = project?.startDate;
+    _endDate = project?.endDate;
+  }
 
   @override
   void dispose() {
@@ -36,7 +56,7 @@ class _AddProjectPageState extends State<AddProjectPage> {
   Future<void> _pickDate({required bool isStartDate}) async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: (isStartDate ? _startDate : _endDate) ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
@@ -53,8 +73,7 @@ class _AddProjectPageState extends State<AddProjectPage> {
 
   void _submitForm() {
     if (_formKey.currentState!.validate()) {
-      // Package up form data into a Map (or your Model object later)
-      final newProjectData = {
+      final updatedProjectData = {
         'name': _nameController.text.trim(),
         'description': _descriptionController.text.trim(),
         'objective': _objectiveController.text.trim(),
@@ -65,8 +84,7 @@ class _AddProjectPageState extends State<AddProjectPage> {
         'endDate': _endDate,
       };
 
-      // Return data to previous screen
-      Navigator.pop(context, newProjectData);
+      Navigator.pop(context, updatedProjectData);
     }
   }
 
@@ -74,7 +92,8 @@ class _AddProjectPageState extends State<AddProjectPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Project'),
+        // Dynamic title based on mode
+        title: Text(_isEditing ? 'Edit Project' : 'New Project'),
         actions: [
           IconButton(
             icon: const Icon(Icons.check),
@@ -87,7 +106,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            // Project Name
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(
@@ -98,8 +116,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
                   value == null || value.isEmpty ? 'Please enter a name' : null,
             ),
             const SizedBox(height: 16),
-
-            // Description (Multi-line text field like <textarea>)
             TextFormField(
               controller: _descriptionController,
               maxLines: 3,
@@ -109,8 +125,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Objective
             TextFormField(
               controller: _objectiveController,
               decoration: const InputDecoration(
@@ -119,8 +133,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Two-column layout for Organization & Manager
             Row(
               children: [
                 Expanded(
@@ -145,8 +157,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
               ],
             ),
             const SizedBox(height: 16),
-
-            // Location
             TextFormField(
               controller: _locationController,
               decoration: const InputDecoration(
@@ -156,8 +166,6 @@ class _AddProjectPageState extends State<AddProjectPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Dates Pickers Row
             Row(
               children: [
                 Expanded(
@@ -186,16 +194,18 @@ class _AddProjectPageState extends State<AddProjectPage> {
               ],
             ),
             const SizedBox(height: 24),
-
-            // Big Save Button
             ElevatedButton(
               onPressed: _submitForm,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
-                backgroundColor: Color(0xFF005B7F),
+                backgroundColor: const Color(0xFF005B7F),
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Create Project', style: TextStyle(fontSize: 18)),
+              // Dynamic button text
+              child: Text(
+                _isEditing ? 'Save Changes' : 'Create Project',
+                style: const TextStyle(fontSize: 18),
+              ),
             ),
           ],
         ),

@@ -26,11 +26,12 @@ class Project {
 
 enum ProjectState {
   draft('Draft', Colors.grey),
-  requestingReview('Requesting Review', Colors.orange),
+  submitted('Submitted', Colors.lightBlue),
+  underReview('Under Review', Colors.orange),
   accepted('Accepted', Colors.blue),
   rejected('Rejected', Colors.red),
-  ammendingRequested('Amending Requested', Colors.amber),
-  ammended('Amended', Colors.deepOrange),
+  amendmentRequested('Amendment Requested', Colors.amber),
+  amending('Amending', Colors.deepOrange),
   preparation('Preparation', Colors.purple),
   active('Active', Colors.green),
   completed('Completed', Colors.teal),
@@ -43,4 +44,20 @@ enum ProjectState {
   final Color color;
 
   const ProjectState(this.label, this.color);
+}
+
+class ReviewAction {
+  final ProjectState previousState;
+  final ProjectState newState;
+  final String comment;
+  final String reviewerName;
+  final DateTime timestamp;
+
+  ReviewAction({
+    required this.previousState,
+    required this.newState,
+    required this.comment,
+    required this.reviewerName,
+    required this.timestamp,
+  });
 }
