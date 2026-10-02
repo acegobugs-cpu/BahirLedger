@@ -124,7 +124,7 @@ class _ProjectResponsibilitiesPageState
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<RaciRole>(
-                      value: _selectedRole,
+                      initialValue: _selectedRole,
                       decoration: const InputDecoration(
                         labelText: 'RACI Role',
                         border: OutlineInputBorder(),
@@ -371,7 +371,7 @@ class _ProjectResponsibilitiesPageState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Chip(
-                          backgroundColor: item.role.color.withOpacity(0.15),
+                          backgroundColor: item.role.color.withValues(alpha: 0.15),
                           label: Text(
                             item.role.label,
                             style: TextStyle(

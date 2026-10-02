@@ -10,4 +10,3 @@ class DashboardPage extends StatelessWidget {
     );
   }
 }
-

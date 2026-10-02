@@ -203,7 +203,7 @@ class _ProjectPreparationPageState extends State<ProjectPreparationPage> {
               SwitchListTile(
                 title: Text('Mark ${item.title} as complete'),
                 value: item.isConfigured,
-                activeColor: Colors.green,
+                activeThumbColor: Colors.green,
                 onChanged: (val) {
                   setState(() {
                     item.isConfigured = val;
@@ -363,8 +363,8 @@ class _ProjectPreparationPageState extends State<ProjectPreparationPage> {
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: item.isConfigured
-                            ? Colors.green.withOpacity(0.1)
-                            : Colors.amber.withOpacity(0.15),
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.amber.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(

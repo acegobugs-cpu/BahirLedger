@@ -110,7 +110,7 @@ class _ProjectProcurementPageState extends State<ProjectProcurementPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<ProcurementCategory>(
-                      value: _selectedCategory,
+                      initialValue: _selectedCategory,
                       decoration: const InputDecoration(
                         labelText: 'Category',
                         border: OutlineInputBorder(),
@@ -152,7 +152,7 @@ class _ProjectProcurementPageState extends State<ProjectProcurementPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<ProcurementStatus>(
-                      value: _selectedStatus,
+                      initialValue: _selectedStatus,
                       decoration: const InputDecoration(
                         labelText: 'Procurement Stage',
                         border: OutlineInputBorder(),
@@ -322,7 +322,7 @@ class _ProjectProcurementPageState extends State<ProjectProcurementPage> {
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: const Color(0xFF70B4C8).withOpacity(0.2),
+                      backgroundColor: const Color(0xFF70B4C8).withValues(alpha: 0.2),
                       child: Icon(item.category.icon, color: const Color(0xFF005B7F)),
                     ),
                     title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -338,7 +338,7 @@ class _ProjectProcurementPageState extends State<ProjectProcurementPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Chip(
-                          backgroundColor: item.status.color.withOpacity(0.15),
+                          backgroundColor: item.status.color.withValues(alpha: 0.15),
                           side: BorderSide.none,
                           label: Text(
                             item.status.label,

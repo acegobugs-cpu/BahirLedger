@@ -94,7 +94,7 @@ class _ProjectBudgetPageState extends State<ProjectBudgetPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<BudgetCategory>(
-                      value: _selectedCategory,
+                      initialValue: _selectedCategory,
                       decoration: const InputDecoration(
                         labelText: 'Category',
                         border: OutlineInputBorder(),
@@ -376,7 +376,7 @@ class _ProjectBudgetPageState extends State<ProjectBudgetPage> {
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: const Color(0xFF70B4C8).withOpacity(0.3),
+                      backgroundColor: const Color(0xFF70B4C8).withValues(alpha: 0.3),
                       child: Icon(item.category.icon, color: const Color(0xFF005B7F)),
                     ),
                     title: Text(

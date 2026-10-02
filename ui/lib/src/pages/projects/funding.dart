@@ -85,7 +85,7 @@ class _ProjectFundingPageState extends State<ProjectFundingPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<FundingType>(
-                      value: _selectedType,
+                      initialValue: _selectedType,
                       decoration: const InputDecoration(
                         labelText: 'Source Type',
                         border: OutlineInputBorder(),
@@ -310,7 +310,7 @@ class _ProjectFundingPageState extends State<ProjectFundingPage> {
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: const Color(0xFF70B4C8).withOpacity(0.3),
+                      backgroundColor: const Color(0xFF70B4C8).withValues(alpha: 0.3),
                       child: Icon(source.type.icon, color: const Color(0xFF005B7F)),
                     ),
                     title: Text(

@@ -77,7 +77,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   const Text('Select the reviewer or approver for this project:'),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: selectedReviewer,
+                    initialValue: selectedReviewer,
                     decoration: const InputDecoration(
                       labelText: 'Select Reviewer',
                       border: OutlineInputBorder(),
