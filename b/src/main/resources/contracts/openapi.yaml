@@ -1,0 +1,26 @@
+openapi: 3.1.0
+info:
+  title: BahirLedger Backend Foundation
+  version: 0.1.0
+  description: >-
+    Step 02a exposes only process liveness, not database or identity-provider readiness.
+    Other routes are denied. Authentication, business APIs and synchronization are not implemented.
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      summary: Process liveness without tenant or infrastructure details
+      security: []
+      responses:
+        '200':
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [UP]

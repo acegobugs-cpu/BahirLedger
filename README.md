@@ -2,6 +2,16 @@
 
 > A transparent, auditable project management and accountability platform for organizations managing people, funds, assets, procurement, and field operations.
 
+## Current direction and status — 2026-10-02
+
+- **Flutter prototype:** Step 01 implemented, **39 tests passed and zero analyzer issues**. Human create/cancel smoke review remains pending; automated coverage is not manual verification.
+- **Backend direction approved:** Java Spring Boot/PostgreSQL modular monolith, REST/JSON + OpenAPI, explicit push/pull sync, S3-compatible evidence, and an eventual advisory Python analytical worker. Established SSO provider not yet selected; OIDC proposed for MVP interoperability.
+- **Current increment: Step 02a only.** Official Java 21 / Spring Boot `4.1.1.RELEASE` / Maven `3.9.16` scaffold generated under `b/`. Intended slice: public `GET /api/v1/health`, all other routes fail closed, no default password/login, and a pure internal org/project-scoped configurable policy evaluator. No auth flow, database, user-data API or full role administration. Build/security/API/policy/runtime verification remains pending for the implementation agent.
+- **Roadmap:** Step 02 is backend/auth (02a scaffold/evaluator; 02b PostgreSQL tenancy; 02c SSO/invites/bootstrap; 02d policy/delegation; 02e Flutter sign-in/My Access; 02f offline lease/sync). 02b–02f remain planned. Original Steps 02–09 are now **03–10**; no later UI feature is claimed delivered.
+- Source: [Flutter README](ui/README.md), [backend build definition](b/pom.xml). Local architecture, decisions, context and plans remain under root `docs/`, locally Git-ignored, not under `ui/` and not required by a fresh clone. Their details are local planning records, not shipped product capabilities.
+
+The sections below describe product intent and examples, not an implemented feature list or a mandatory project-management methodology. Organizations configure structured policies within mandatory security rules.
+
 ---
 
 ## Overview
@@ -67,7 +77,7 @@ Evidence Submitted
 Work Verified
        ↓
 Payment Released
-````
+```
 
 Every important transition should have:
 
@@ -159,6 +169,8 @@ The mobile application must assume that connectivity can disappear.
 Users should be able to continue performing essential operations while offline.
 
 Local changes should be persisted and synchronized when connectivity becomes available.
+
+Synchronization uses explicit push/pull with server revalidation. Offline actions are pending proposals, not authoritative approvals. Revocation reaches a disconnected device only later; pending work must be retained encrypted for controlled reconciliation. Seven-day offline access, five-minute local lock, 30-day exceptions and online-by-default approvals are provisional recommendations, not accepted defaults.
 
 ```text
               ┌──────────────┐
@@ -622,9 +634,9 @@ It should not silently modify financial or project state.
 
 # Authorization
 
-The system uses role- and policy-based authorization.
+The approved direction is structured organization/project-scoped authorization; complete enforcement is not yet implemented.
 
-Potential roles include:
+Optional role templates may include (not a fixed hierarchy):
 
 * Project Owner
 * Project Manager
@@ -636,9 +648,9 @@ Potential roles include:
 * Administrator
 * Observer
 
-Permissions should be based on both role and project context.
+Permissions are scoped to the organization and either all projects or selected projects. Authorized administrators can delegate role assignment and approval authority within their permitted scope. Organization policy controls defaults and delegated project overrides; mandatory rules cannot be weakened. RACI or a job title is not itself an access grant.
 
-For example:
+For example, an organization may choose:
 
 ```text
 Finance Officer
@@ -648,7 +660,9 @@ Can propose expense
 Cannot approve own expense
 ```
 
-This separation of responsibilities is important for accountability.
+This is an optional separation-of-duties rule, not a universal requirement. Self-approval can be allowed or denied by explicit policy; it never replaces the need for scoped permission and an applicable approval rule. Review-before-preparation and required rejection/amendment reasons in the current UI are legacy prototype choices, not mandatory rules for every organization.
+
+An **organization is an independent workspace/tenant, not a legal entity**. Creation is self-service through controlled bootstrap; existing-organization membership is invite-only, with one organization per application account. Organization SSO is mandatory from the outset; initial device scope is personal devices only.
 
 ---
 
@@ -672,6 +686,8 @@ The system should consider:
 * Tamper detection
 
 Sensitive operations should require appropriate authorization.
+
+Use an established identity provider (vendor unselected; MVP OIDC proposed). Pending SSO bootstrap has no tenant-data access: verify provider control and test sign-in before activation. Stable issuer+subject identifies a user; email/domain does not confer membership. Invitations must bind organization/recipient, expire and be consumed once. Trust reviewed provider registries, not arbitrary issuer URLs. Flutter uses external-browser authorization code + PKCE with no app secret. Concrete interoperability, delegated precedence, recovery/last-owner protection and offline defaults remain open decisions.
 
 ---
 
@@ -716,7 +732,9 @@ Work Completion
 
 # Architectural Direction
 
-The final architecture has not yet been selected.
+The approved architecture is a **Java Spring Boot modular monolith with PostgreSQL**, serving Flutter through versioned REST/JSON APIs described by a committed OpenAPI contract. PostgreSQL is authoritative; a local client store and explicit push/pull synchronization support eventual reconciliation rather than offline server authority.
+
+Evidence will use S3-compatible private storage with tenant-scoped access. An eventual Python analytical worker will produce advisory findings, not approve changes or control transactions. Mandatory organization SSO will use an established provider; the vendor and concrete protocol interoperability remain to be settled (OIDC proposed for MVP).
 
 The project will be designed around several architectural principles:
 
@@ -732,7 +750,7 @@ The project will be designed around several architectural principles:
 * Observable system behavior
 * Evidence-backed state transitions
 
-Technology choices will be made after the system requirements and architectural constraints have been established.
+Backend technology direction is approved; provider choice, client storage/platform support, detailed policy precedence, recovery and offline defaults still require decisions. Implement one testable slice at a time; architecture approval is not a claim that these capabilities exist.
 
 ---
 
@@ -830,7 +848,7 @@ Potential future capabilities include:
 * Public transparency portals
 * External auditor access
 * Cryptographically verifiable audit logs
-* Multi-organization deployments
+* Cross-organization collaboration, if separately designed (multiple isolated tenants are the baseline; one organization per application account remains the current rule)
 
 ---
 
@@ -928,7 +946,7 @@ Infrastructure should evolve alongside actual system requirements.
 
 # Project Status
 
-**Status:** Architecture & Requirements
+**Status:** Flutter baseline implemented; backend foundation started with scaffold generation. Verification of Step 02a implementation remains pending.
 
 Current stage:
 
@@ -937,14 +955,19 @@ Current stage:
 * [x] Core domains identified
 * [x] Mobile requirements identified
 * [x] Accountability model outlined
-* [ ] Architecture finalized
-* [ ] Technology stack selected
-* [ ] Repository structure defined
+* [x] Backend architectural direction approved (modular monolith / REST / PostgreSQL)
+* [x] Core technology stack selected; identity provider and client storage still open
+* [x] Source layout established: Flutter under `ui/`, backend under `b/`; local ignored notes under root `docs/`
 * [ ] Domain model designed
-* [ ] API contracts defined
+* [ ] Step 02a health OpenAPI contract implemented and verified
 * [ ] Mobile synchronization protocol designed
 * [ ] MVP scope finalized
-* [ ] Implementation started
+* [x] Implementation started: Flutter Step 01 baseline and generated backend scaffold
+* [ ] Human Step 01 create/cancel smoke completed
+* [ ] Step 02a build, security/API/policy tests and runtime checks recorded
+* [ ] Step 02b–02f authentication/data/policy/offline slices delivered
+
+Step 02a does not implement end-to-end authentication or tenant security. Its internal evaluator is only a minimal policy primitive; all production identity, membership, storage, administration and sync flows remain separately planned.
 
 ---
 

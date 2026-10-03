@@ -1,4 +1,6 @@
-# Workflow 01 — Project Lifecycle
+# Historical workflow sketch 01 — Project Lifecycle
+
+> **Historical prototype discovery; not universal policy (2026-10-02).** The lifecycle, review/reason requirements, responsibilities and screen sequence below are examples that explain the existing UI. They are superseded as product-wide mandates by structured org/project configuration, optional role templates, configurable self-approval and scoped delegated authority bounded by mandatory rules. “Organization” means an independent workspace/tenant, not a legal entity. See [current direction](../../../README.md) and [historical decisions](../dec/decisions.md). Screen numbers below are not the root roadmap, whose original Steps 02–09 are now 03–10 after inserting backend/auth as Step 02. No new local plans/context belong in this UI directory.
 
 First, let's define the lifecycle we want the UI to represent.
 
@@ -48,7 +50,7 @@ At this point, it's just a proposal/draft.
 
 The creator says:
 
- "This project is ready for someone to review." 
+ "This project is ready for someone to review."
 
 Now we have a workflow transition:
 ```
@@ -308,13 +310,13 @@ That's a backend requirement we just discovered from a UI.
 
 First decisions to record
 
-I'd start our docs/domain-discovery.md with these provisional decisions:
+The following provisional discovery examples are retained historically, not instructions to create a new UI-local planning document:
 
 # Domain Discovery
 
 ## Workflow: Project Lifecycle
 
-### Current lifecycle
+### Historical example lifecycle (not universally required)
 
 DRAFT
 → SUBMITTED
@@ -334,8 +336,8 @@ A project is not simply created and immediately active.
 Projects move through explicit states.
 
 Reason:
-Projects require review, preparation, execution, completion, and
-historical closure.
+This prototype example assumes review, preparation, execution, completion, and
+historical closure. Actual required transitions are configurable by org/project policy.
 
 Status:
 PROVISIONAL

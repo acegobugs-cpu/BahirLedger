@@ -1,17 +1,21 @@
-# bahir_ledger
+# BahirLedger Flutter client
 
-A new Flutter project.
+Flutter project/accountability prototype: project list/create/edit/detail, review history and preparation editors. Current state is in memory, with known cross-route data-loss gaps. Production authentication, durable offline storage, backend integration and synchronization are not implemented in the verified UI baseline.
 
-## Getting Started
+## Verified baseline
 
-This project is a starting point for a Flutter application.
+Step 01: **39 tests passed; zero analyzer issues**. Human create/cancel smoke review remains pending. These are recorded results, not checks rerun by the documentation update. Flutter 3.41.9 / Dart 3.11.5 were used; see [pubspec.yaml](pubspec.yaml) and [tests](test/widget_test.dart).
 
-A few resources to get you started if this is your first Flutter project:
+Run UI checks from this directory: `flutter analyze --no-pub` and `flutter test`; use targeted tests for the changed slice. Generated platform folders are not release-support certification.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Backend and access direction
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The [backend build definition](../b/pom.xml) establishes Java 21 / Spring Boot; approved direction is PostgreSQL modular monolith, REST/JSON/OpenAPI, explicit push/pull sync, S3-compatible evidence and eventual advisory Python analysis. See the [root overview](../README.md) for current status. Only Step 02a scaffold/health/fail-closed/internal-policy work is current; implementation verification is pending, not full authentication.
+
+An org is an independent workspace/tenant, not a legal entity. One org per application account, invite-only membership, self-service org creation with restricted bootstrap, mandatory org SSO and personal devices only. Provider is not selected; OIDC proposed. Flutter sign-in will use external-browser auth code + PKCE, no app secret. Pending bootstrap cannot access tenant data before provider-control verification and successful test sign-in.
+
+Authority is configurable by org/project, including self-approval, scoped grants and delegated role/approval administration bounded by mandatory rules. Role templates are optional. [Old review decisions](docs/dec/decisions.md) and [workflow sketches](docs/workflow/1_projectWorkFlow.md) are historical prototype examples, not universal policy.
+
+Offline timings and online-by-default approvals remain proposals. No authoritative offline approvals or instant disconnected revocation; pending work must be retained encrypted for later reconciliation. The current prototype does not implement those protections.
+
+Local context, review, decisions and development plans belong only under the repository-root ignored documentation directory, not this source tree. Original roadmap Steps 02–09 were shifted to 03–10 when backend/auth became Step 02; the historical UI screen numbers are unrelated.
