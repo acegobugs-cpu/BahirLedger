@@ -18,9 +18,9 @@ public class DatabaseConfiguration {
     DataSource dataSource(Environment environment) {
         boolean local = environment.acceptsProfiles(Profiles.of("local"));
 
-        String rawUrl = getFirstNonBlank(environment, "BAHIRLEDGER_DB_URL", "bahirledger.database.url");
-        String username = getFirstNonBlank(environment, "BAHIRLEDGER_DB_USERNAME", "bahirledger.database.username");
-        String password = getFirstNonBlank(environment, "BAHIRLEDGER_DB_PASSWORD", "bahirledger.database.password");
+        String rawUrl = environment.getProperty("bahirledger.database.url", "").trim();
+        String username = environment.getProperty("bahirledger.database.username", "").trim();
+        String password = environment.getProperty("bahirledger.database.password", "");
 
         // Format raw PostgreSQL URL if "jdbc:" prefix was omitted
         String url = normalizeJdbcUrl(rawUrl, local);
@@ -36,14 +36,6 @@ public class DatabaseConfiguration {
         config.setConnectionTimeout(5000);
 
         return new HikariDataSource(config);
-    }
-
-    private static String getFirstNonBlank(Environment env, String envKey, String propertyKey) {
-        String val = env.getProperty(envKey);
-        if (val == null || val.isBlank()) {
-            val = env.getProperty(propertyKey, "");
-        }
-        return val.trim();
     }
 
     private static String normalizeJdbcUrl(String rawUrl, boolean local) {
@@ -62,7 +54,7 @@ public class DatabaseConfiguration {
                 throw new IllegalStateException("The local profile requires a file-backed H2 database.");
             }
         } else if (!url.startsWith("jdbc:postgresql:") || username.isBlank() || password.isBlank()) {
-            throw new IllegalStateException("Configure BAHIRLEDGER_DB_URL, BAHIRLEDGER_DB_USERNAME and BAHIRLEDGER_DB_PASSWORD for PostgreSQL.");
+            throw new IllegalStateException("Configure bahirledger.database.url, username and password in application.properties for PostgreSQL.");
         }
     }
 }

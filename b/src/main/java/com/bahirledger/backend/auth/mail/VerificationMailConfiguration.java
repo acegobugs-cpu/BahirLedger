@@ -22,7 +22,11 @@ public class VerificationMailConfiguration {
         // Explicit local-only development escape hatch; never combine local with deployment profiles.
         boolean local = List.of(environment.getActiveProfiles()).equals(List.of("local"));
         String origin = environment.getProperty("bahirledger.mail.verification-web-origin", "");
-        validateOrigin(origin, local);
+        // A PostgreSQL development setup may use a loopback Flutter page without
+        // enabling the local profile (which switches the database to H2).
+        boolean allowLoopbackLinks = local || environment.getProperty(
+            "bahirledger.mail.allow-loopback-http", Boolean.class, false);
+        validateOrigin(origin, allowLoopbackLinks);
         if (mode.equals("file") && local) {
             var outbox = new LocalFileOutbox(Path.of(System.getProperty("user.home")));
             return (email, token) -> outbox.deliver("To: " + email + "\nSubject: Verify your BahirLedger email\n\n" + body(origin, token));
@@ -111,6 +115,6 @@ public class VerificationMailConfiguration {
     }
 
     private static IllegalStateException invalidConfiguration() {
-        return new IllegalStateException("Invalid verification mail configuration. Check BAHIRLEDGER_MAIL_MODE, BAHIRLEDGER_VERIFICATION_WEB_ORIGIN and BAHIRLEDGER_SMTP_* settings.");
+        return new IllegalStateException("Invalid verification mail configuration. Check bahirledger.mail.* settings in application.properties (including the SMTP app password).");
     }
 }

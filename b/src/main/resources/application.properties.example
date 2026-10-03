@@ -1,0 +1,35 @@
+# Copy to application.properties in this directory, then fill in your private values.
+# Only this example belongs in Git. Do not put real credentials or personal sender addresses here.
+spring.application.name=BahirLedgerBackend
+server.forward-headers-strategy=none
+spring.web.error.include-message=never
+spring.web.error.include-binding-errors=never
+spring.web.error.include-stacktrace=never
+spring.web.error.include-exception=false
+spring.mvc.log-request-details=false
+spring.sql.init.mode=never
+spring.flyway.clean-disabled=true
+spring.flyway.validate-on-migrate=true
+
+# PostgreSQL: adjust the port/database and fill in both credentials before running.
+# Leave the local profile off to keep using PostgreSQL.
+bahirledger.database.url=jdbc:postgresql://localhost:5433/bahir_ledger
+bahirledger.database.username=
+bahirledger.database.password=
+
+# Exact Flutter browser origin. Change BOTH origins if your web port changes.
+bahirledger.auth.web-origin=http://localhost:8765
+bahirledger.mail.verification-web-origin=http://localhost:8765
+# Development only: HTTP loopback email links, not plaintext SMTP. Use HTTPS in deployment.
+bahirledger.mail.allow-loopback-http=true
+
+# Gmail SMTP can send to any recipient provider. Configure all three private values below.
+# With blank credentials, startup fails closed instead of pretending to send email.
+bahirledger.mail.mode=smtp
+bahirledger.mail.smtp.host=smtp.gmail.com
+bahirledger.mail.smtp.port=587
+bahirledger.mail.smtp.from=
+bahirledger.mail.smtp.username=
+# Google APP password (not your account password), without grouping spaces.
+bahirledger.mail.smtp.password=
+bahirledger.mail.smtp.starttls=true

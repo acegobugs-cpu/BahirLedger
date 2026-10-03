@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Exercise real profile-driven startup provisioning, still using only in-memory test H2. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "bahirledger.auth.web-origin=http://localhost:8765",
         "BAHIRLEDGER_DEV_EMAIL=Local-Profile@Example.Test",
         "BAHIRLEDGER_DEV_PASSWORD=Synthetic-local-profile-test-only!",
         "BAHIRLEDGER_DEV_NAME=Local Profile Person"
@@ -58,7 +59,7 @@ class LocalProfileHttpTest {
     }
 
     @Test
-    void localProfileProvidesOnlyTheDocumentedDefaultWebOrigin() throws Exception {
+        void localProfileUsesTheExplicitlyConfiguredWebOrigin() throws Exception {
         var response = client.send(request("/api/v1/auth/login").header("Origin", "http://localhost:8765")
                 .header("Access-Control-Request-Method", "POST")
                 .header("Access-Control-Request-Headers", "Content-Type")

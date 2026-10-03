@@ -8,23 +8,29 @@
     {
       "name": "bahirledger.database.url",
       "type": "java.lang.String",
-      "description": "Database JDBC URL; overridden by nonblank BAHIRLEDGER_DB_URL."
+      "description": "Database JDBC URL from private application.properties."
     },
     {
       "name": "bahirledger.database.username",
       "type": "java.lang.String",
-      "description": "Database identity; overridden by nonblank BAHIRLEDGER_DB_USERNAME."
+      "description": "Database identity from private application.properties."
     },
     {
       "name": "bahirledger.database.password",
       "type": "java.lang.String",
-      "description": "Database secret; overridden by nonblank BAHIRLEDGER_DB_PASSWORD."
+      "description": "Database secret from private application.properties; never commit this value."
     },
     {
       "name": "bahirledger.mail.mode",
       "type": "java.lang.String",
       "defaultValue": "disabled",
       "description": "Verification delivery: disabled, smtp, or exclusively-local file outbox."
+    },
+    {
+      "name": "bahirledger.mail.allow-loopback-http",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Explicit development-only HTTP loopback email links without switching PostgreSQL to the local H2 profile; does not relax SMTP TLS or file-mode restrictions."
     },
     {
       "name": "bahirledger.mail.verification-web-origin",

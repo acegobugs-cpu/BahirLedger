@@ -26,19 +26,21 @@ Install Flutter with Dart compatible with `^3.11.5` and the build prerequisites 
 
 From the repository root, use `cd ui`, then `flutter pub get` and `flutter run -d <device-id>`. Discover available targets with `flutter devices`. Platform scaffolding does not mean every release target is certified.
 
-Choose **Explore demo (local sample data)** to explore without a backend or account. For managed signup/sign-in, run the backend separately; configure verification delivery or optionally provision a local development account as described in [b/README.md](b/README.md). Provisioning does not verify email. Set `API_BASE_URL` to the API origin; its default is `http://localhost:8080`. HTTP is allowed only for exact loopback hosts in debug builds; profile/release requires HTTPS. For web development use a fixed frontend port matching the backend's exact CORS origin (local default `http://localhost:8765`). See [ui/README.md](ui/README.md) for platform and transport limits.
+Choose **Explore demo (local sample data)** to explore without a backend or account. For managed signup/sign-in, complete the [backend private-properties setup](b/README.md#private-properties-workflow), run the backend separately and register through the UI; legacy provisioning is not needed. Set `API_BASE_URL` to the API origin; its default is `http://localhost:8080`. HTTP is allowed only for exact loopback hosts in debug builds; profile/release requires HTTPS. For web development use a fixed frontend port matching both backend origins (template: `http://localhost:8765`). See [ui/README.md](ui/README.md) for platform and transport limits.
 
 Web verification links use a frontend fragment, held only in memory and scrubbed from the current URL/history entry before UI handling; confirmation is explicit after same-account sign-in. Native supports manual token paste, or full-link paste with configured `FRONTEND_ORIGIN`, not OS universal/app links. Scrubbing cannot erase records created before app startup.
 
 ### Backend
 
-Install a **full JDK 21** and select it with `JAVA_HOME`; a Java runtime alone is insufficient. From the repository root, use `cd b`, then `./mvnw verify`. On Windows use `mvnw.cmd`. Tests supply their own database; application startup requires explicit database/profile configuration.
+Use a **full JDK 21**; a Java runtime alone is insufficient. From the backend directory run `./mvnw verify` (Windows: `mvnw.cmd verify`). Dedicated test-only configuration keeps tests independent of private database/SMTP values.
 
-For local development only, enable `SPRING_PROFILES_ACTIVE=local` when running `./mvnw spring-boot:run`. Account creation is opt-in via all three variables `BAHIRLEDGER_DEV_EMAIL`, `BAHIRLEDGER_DEV_PASSWORD` and `BAHIRLEDGER_DEV_NAME`; there are no default application credentials. Follow the secure provisioning instructions in [b/README.md](b/README.md), not shell-history password literals. Existing accounts are never overwritten. H2 account data defaults to the user's external local-data directory and survives backend restart; sessions do not.
+All backend runtime settings belong in private, ignored/untracked [b/src/main/resources/application.properties](b/src/main/resources/application.properties). **Preserve an existing file and its database values.** Only if it is absent, copy [b/src/main/resources/application.properties.example](b/src/main/resources/application.properties.example) beside it using the editor, then fill private values. The template has blank database/SMTP credentials, Gmail port 587 with STARTTLS, both origins at `http://localhost:8765`, and explicit loopback HTTP permission. The existing private sender is filled; enter the remaining Google app password in `bahirledger.mail.smtp.password` **in the editor, never in chat**.
 
-Without the local profile, PostgreSQL URL, username and password configuration are required; review/externalize machine-local settings and use deployment secrets. `GET /api/v1/health` returns `{"status":"UP"}` for liveness, not tenant or deployment readiness. Only health/register/login and authenticated identity/verification/logout operations, plus permitted preflights, are enabled; everything else is denied.
+After credentials are filled and the configured PostgreSQL service is available, normal `./mvnw spring-boot:run` works without a launcher or environment setup. The existing local environment file is untouched and not loaded; canonical `bahirledger.database.*` properties are read directly. No automatic restart is performed. The optional `local` profile explicitly selects external file-backed H2 instead of PostgreSQL and inherits private CORS/mail settings; it is not needed for Gmail or UI registration. Accounts survive restart; bearer sessions do not.
 
-Verification delivery defaults to **disabled**: registration and pending-account resend return `503`, not simulated success. Configure `BAHIRLEDGER_MAIL_MODE=smtp` and the frontend origin/SMTP settings for real mail, or explicitly choose the private external file outbox under the exclusively `local` profile. The outbox does not send to an inbox. Adapter/relay acceptance is **not guaranteed inbox delivery**; there is no durable mail worker or automatic retry. Signup failure can leave a pending account without a session: sign in, then resend after cooldown. See [delivery setup and limits](b/README.md#verification-delivery-setup).
+`GET /api/v1/health` returns `{"status":"UP"}` for liveness, not tenant or deployment readiness. Only health/register/login and authenticated identity/verification/logout operations, plus permitted preflights, are enabled; everything else is denied.
+
+The template selects **SMTP**; disabled mode remains a fallback that returns `503` for registration/pending resend, not simulated success. The exclusively `local` profile can optionally use a private file outbox, which does not send to an inbox. Adapter/relay acceptance is **not guaranteed inbox delivery**; there is no durable mail worker or automatic retry. Signup failure can leave a pending account without a session: sign in, then resend after cooldown. See [delivery setup and limits](b/README.md#verification-delivery-setup).
 
 See [b/README.md](b/README.md) for configuration and debugging, and [the API contract](b/src/main/resources/contracts/openapi.yaml) for implemented operations.
 
@@ -49,6 +51,8 @@ See [b/README.md](b/README.md) for configuration and debugging, and [the API con
 - For whitespace: `git diff --check` from the repository root.
 
 Do not commit credentials, identity-provider secrets, signing keys, or production data. No model-provider API key belongs in Flutter.
+
+Ignoring/untracking private configuration does **not** erase previous commits: rotate any real credentials previously committed. Maven build output and packaged JARs include private resource configuration; **do not publish artifacts containing secrets**. See [backend secret hygiene](b/README.md#private-properties-workflow).
 
 ## Documentation
 

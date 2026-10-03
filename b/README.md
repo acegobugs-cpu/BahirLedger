@@ -7,6 +7,45 @@ including link capture, token entry and the pending-account gate. Live HTTP/file
 and browser-link/CORS checks passed; the full interactive browser login → verification
 → account journey remains unvalidated. See [validation limits](#verification-validation--2026-10-03).
 
+## Private properties workflow
+
+**All backend runtime configuration belongs in the private
+[src/main/resources/application.properties](src/main/resources/application.properties),
+not a run script or environment setup.** This file is ignored and untracked;
+removing it from Git's index preserved the file on disk. The committable
+[src/main/resources/application.properties.example](src/main/resources/application.properties.example)
+is the credential-free template, not a file Spring loads automatically.
+
+1. If the private file already exists, **keep it; do not overwrite it with the
+	example**. Its existing database values are preserved. Only for a new checkout
+	where it is absent, copy the example in the editor to the private file beside it.
+2. Edit private values in the editor. The template leaves database credentials,
+	SMTP sender, username and password blank. It selects Gmail SMTP on port **587**
+	with required STARTTLS, both frontend origins at `http://localhost:8765`, and
+	explicit `bahirledger.mail.allow-loopback-http=true` for development.
+3. In the existing private file the sender is already filled; the SMTP password
+	is still blank. Enter your Google app password into
+	`bahirledger.mail.smtp.password` **in the editor, never in chat**. For a fresh
+	copy, also fill database credentials and matching Gmail sender/login. Blank
+	required credentials are not a usable startup configuration.
+4. With a full JDK 21 selected and PostgreSQL available at the configured address,
+	run the normal `./mvnw spring-boot:run` from the backend directory after filling
+	credentials. Register through the UI; legacy local provisioning is not needed.
+
+No launcher is required. The existing local environment file is untouched and is
+not loaded. Neither properties file nor the optional local profile uses environment
+placeholders; the backend reads canonical `bahirledger.database.*` properties
+directly, without a custom `BAHIRLEDGER_DB_*` override. Editing a file does not
+reconfigure an already-running process; this documentation update does not start
+or restart the backend.
+
+**Secret hygiene:** ignoring/untracking a file does not erase previous commits.
+Rotate any real credentials previously committed; do not assume Git history is
+clean. Maven resource copying and packaging include the private configuration in
+build output and executable JARs. **Do not publish JARs or other build artifacts
+containing secrets.** Keep the template credential-free and protect private files,
+backups and artifacts with appropriate access controls.
+
 ## HTTP contract
 
 The [OpenAPI contract](src/main/resources/contracts/openapi.yaml) is committed, not served publicly.
@@ -100,21 +139,24 @@ records. The backend does not serve this page.
 
 ## Verification delivery setup
 
-Delivery defaults to **disabled**, not simulated success. Unconfigured registration
-and pending-account resend return `503`; ordinary login still works. All errors are
-sanitized. Links are built from configuration, **never Host, Origin or forwarded
-request headers**.
+Configure these properties directly in the [private runtime file](src/main/resources/application.properties).
+The template explicitly selects **SMTP**; the adapter's fallback when no mode is
+configured is **disabled**, not simulated success. Disabled registration and
+pending-account resend return `503`; ordinary login still works. Invalid enabled
+SMTP configuration fails startup. All errors are sanitized. Links are built from
+configuration, **never Host, Origin or forwarded request headers**.
 
-| Environment variable | Meaning |
+| Property | Meaning |
 | --- | --- |
-| `BAHIRLEDGER_MAIL_MODE` | `disabled` (default), `smtp`, or explicit-local-only `file` |
-| `BAHIRLEDGER_VERIFICATION_WEB_ORIGIN` | Required when delivery is enabled: exact public frontend origin, no path/trailing slash/query/fragment/userinfo. HTTPS required; HTTP allowed only for localhost/127.0.0.1/::1 with exclusively `local` active. Example `https://app.example.test` or local `http://localhost:8765` |
-| `BAHIRLEDGER_SMTP_HOST` | Required SMTP host in `smtp` mode; no provider assumed |
-| `BAHIRLEDGER_SMTP_PORT` | SMTP port, default `587` |
-| `BAHIRLEDGER_SMTP_FROM` | Required explicit single sender email address in `smtp` mode |
-| `BAHIRLEDGER_SMTP_USERNAME` / `BAHIRLEDGER_SMTP_PASSWORD` | Both supplied for SMTP AUTH, or both empty for a trusted relay; use deployment secrets |
-| `BAHIRLEDGER_SMTP_STARTTLS` | `true` by default, requires STARTTLS and server certificate/hostname validation. `false` allowed only with exclusively `local` active and a literal loopback SMTP host |
-| `BAHIRLEDGER_WEB_ORIGIN` | Separate existing browser CORS origin; now environment-configurable outside local too, empty disables browser cross-origin access. Still restricted to the existing exact loopback-origin policy |
+| `bahirledger.mail.mode` | `smtp` in the template; `disabled` fallback, or explicit-local-only `file` |
+| `bahirledger.mail.verification-web-origin` | Exact frontend origin, no path/trailing slash/query/fragment/userinfo. Template: `http://localhost:8765`. HTTPS outside loopback development |
+| `bahirledger.mail.allow-loopback-http` | Explicit `true` in the development template permits HTTP email links only for localhost/127.0.0.1/::1 without selecting H2; otherwise false by default, with an exclusively local-profile exception. Does not permit external HTTP or plaintext Gmail SMTP; use false and HTTPS for deployment |
+| `bahirledger.mail.smtp.host` | `smtp.gmail.com` in the template |
+| `bahirledger.mail.smtp.port` | `587` in the template; implicit TLS/465 is not supported |
+| `bahirledger.mail.smtp.from` | Explicit single sender email address; blank in the template |
+| `bahirledger.mail.smtp.username` / `bahirledger.mail.smtp.password` | Gmail sender login and Google app password; blank in the template. Both required for Gmail; both empty is only for a trusted relay |
+| `bahirledger.mail.smtp.starttls` | `true` in the template, requires STARTTLS and server certificate/hostname validation. `false` allowed only with exclusively `local` active and a literal loopback SMTP host |
+| `bahirledger.auth.web-origin` | Separate exact browser CORS origin; template: `http://localhost:8765`. Empty disables cross-origin access; current policy is loopback-only. Change both frontend origins together if the web port changes |
 
 SMTP uses Spring Mail with **5-second connection, read and write timeouts**, no
 mail debug/wire logging, and at most four concurrent delivery operations. STARTTLS
@@ -125,9 +167,11 @@ with `503`. Do not enable request/JDBC-bind/mail debug logging in deployment.
 
 ### Explicit local file outbox
 
-With `SPRING_PROFILES_ACTIVE=local` (not combined with another profile), opt in with
-`BAHIRLEDGER_MAIL_MODE=file` and set `BAHIRLEDGER_VERIFICATION_WEB_ORIGIN` to your
-local frontend origin. No SMTP settings are required. Mail is written outside the
+In the private runtime file, explicitly set `spring.profiles.active=local` (not
+combined with another profile), `bahirledger.mail.mode=file`, and
+`bahirledger.mail.verification-web-origin` to your local frontend origin. This
+also selects H2 instead of PostgreSQL; it is not needed for Gmail. No SMTP settings
+are required for file mode. Mail is written outside the
 checkout under `$HOME/.local/share/bahirledger/mail` (Java `user.home`), with a
 **0700 directory and 0600 randomly named `.eml` files**. Paths are traversed using
 POSIX secure directory handles with no symlink following; files use exclusive
@@ -139,6 +183,26 @@ Outbox files intentionally contain verification tokens, so keep them private,
 never commit/share them, and delete them after use. No automatic retention cleanup
 is implemented. Tests use a separate in-memory capturing sender and temporary test
 outbox directories, never this real user outbox.
+
+### Gmail SMTP for development
+
+Gmail can deliver to other providers, including Outlook and Yahoo; recipients do
+not need Gmail accounts. Use a Gmail/Google Workspace sender with 2-Step
+Verification and a Google **app password**, not the normal account password.
+Account/organization policy may disable app passwords. Create one through
+[Google App passwords](https://myaccount.google.com/apppasswords).
+
+Follow the [private properties workflow](#private-properties-workflow): enter the
+app password without grouping spaces in the editor, keeping the SMTP sender and
+login matched. The template already sets `smtp.gmail.com:587` and required STARTTLS.
+No script, environment exports or H2 profile is required; existing PostgreSQL
+settings stay in use. The explicit loopback-HTTP flag affects email links only,
+not SMTP encryption or database selection.
+
+For a previously created pending account, **sign in and resend verification** after
+the 60-second cooldown; do not repeatedly register. SMTP acceptance still does not
+guarantee inbox delivery—check spam and provider limits. Never share app passwords,
+verification tokens or secret-bearing build artifacts.
 
 ### Reliability limits
 
@@ -154,24 +218,18 @@ required. This slice does not claim reliable background delivery or production r
 
 ## Build and tests
 
-Use a **full JDK 21**, not a JRE (the shell default may be Java 17). On this machine
-the verified installation is `/home/ace/.cache/bahirledger/jdk-21`.
-
-From the backend directory:
-
-```sh
-export JAVA_HOME=/home/ace/.cache/bahirledger/jdk-21
-export PATH="$JAVA_HOME/bin:$PATH"
-./mvnw verify
-```
+Use a **full JDK 21**, not a JRE (the shell default may be Java 17).
+From the backend directory, run `./mvnw verify` with that JDK selected.
 
 Use `mvnw.cmd verify` on Windows. The Maven wrapper downloads dependencies; global
 Maven is not required. Tests supply a **test-only H2 in-memory DataSource** and a
 controllable clock, with no database server or real credentials. There is no
-runtime `test` profile that enables an embedded database. The production DataSource
-requires PostgreSQL configuration and never falls back to H2. Current checked-in
-local database property values are preserved by this change; tests override the
-DataSource and do not connect to them.
+runtime `test` profile that enables an embedded database. Dedicated test-only
+configuration keeps tests independent of private database/SMTP values; tests do
+not require a Gmail app password or contact the real database/mail service. The
+parent change owns that test configuration; this documentation pass does not add
+or rerun tests. The production DataSource requires PostgreSQL configuration and
+never falls back to H2. Existing private database values are preserved.
 
 Boot manages Spring JDBC, Flyway 12.4.0, PostgreSQL JDBC 42.7.13 and H2 2.4.240.
 Flyway's H2 adapter currently emits a warning that its latest verified H2 version
@@ -200,44 +258,24 @@ untouched; the parent owns cleanup of only its temporary preview and test data.
 
 ## Explicit local development profile
 
-Set `SPRING_PROFILES_ACTIVE=local` **only on a developer machine**. It binds the
-server to loopback, defaults the web origin to `http://localhost:8765`, and uses
+Set `spring.profiles.active=local` in the private runtime file **only when explicitly
+choosing H2 on a developer machine**. The
+[src/main/resources/application-local.properties](src/main/resources/application-local.properties)
+profile binds the server to loopback and uses
 file-backed H2 under `$HOME/.local/share/bahirledger/accounts` (H2 adds its file
 extension). The database is not ephemeral and is outside the checkout. H2 has no
 TCP listener/console here; its local `sa`/empty database login is not an application
 account or a deployment credential. Protect the directory with OS permissions.
 
-Account provisioning is opt-in: supply **all three** environment variables
-`BAHIRLEDGER_DEV_EMAIL`, `BAHIRLEDGER_DEV_PASSWORD`, `BAHIRLEDGER_DEV_NAME`.
-There are **no default application credentials**. Unset all three to skip it;
-partial/invalid values stop startup. The display name must be nonblank and at most
-120 characters after stripping. Existing normalized emails are left completely
-unchanged (password, display name, ID and active status); startup is not a password
-reset facility. A database unique constraint also handles simultaneous provisioning.
+The profile inherits CORS and mail settings from the private runtime file; it
+does not replace them with environment placeholders. It is **not required for
+normal PostgreSQL/Gmail startup**. Register through the UI. Optional legacy local
+account provisioning remains create-only and is unnecessary for this workflow;
+there are no default application credentials or startup password resets. Do not
+activate the local profile in production, including alongside other profiles.
+Accounts persist across restart; in-memory bearer sessions do not.
 
-Example interactive Bash setup, without storing the password in command history:
-
-```sh
-umask 077
-mkdir -p "$HOME/.local/share/bahirledger"
-chmod 700 "$HOME/.local/share/bahirledger"
-read -r -p 'Development email: ' BAHIRLEDGER_DEV_EMAIL
-read -r -p 'Development display name: ' BAHIRLEDGER_DEV_NAME
-read -r -s -p 'Development password: ' BAHIRLEDGER_DEV_PASSWORD
-printf '\n'
-export BAHIRLEDGER_DEV_EMAIL BAHIRLEDGER_DEV_NAME BAHIRLEDGER_DEV_PASSWORD
-SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
-unset BAHIRLEDGER_DEV_EMAIL BAHIRLEDGER_DEV_NAME BAHIRLEDGER_DEV_PASSWORD
-```
-
-Only the BCrypt encoding (cost 12) is persisted, never plaintext. The bootstrap
-component exists only in the local profile. Do not activate that profile in
-production, including alongside other profiles. Subsequent local runs need only
-the local profile; the database retains the original account. Environment variables
-are not a secret vault; use only disposable development credentials and unset them
-when no longer needed. The application does not automatically load `.env` files.
-
-**Repository hygiene:** no ignore files were changed. The default external data
+**Repository hygiene:** the private runtime file is ignored/untracked. The default external data
 directory needs no Git exclusion. If relocating H2 or PostgreSQL data inside the
 checkout, first arrange a local exclusion for that chosen data directory (for
 example `b/data/`) and database files (`*.mv.db`, `*.trace.db`, lock files); those
@@ -246,20 +284,21 @@ commit accounts, database dumps, passwords or tokens.
 
 ## PostgreSQL deployment target
 
-With no local profile, the DataSource accepts these environment overrides (nonblank
-environment values take precedence over existing database properties):
+With no local profile, the DataSource reads these canonical properties directly
+from the private runtime configuration; no custom database environment override
+is required or supported:
 
-| Environment variable | Purpose |
+| Property | Purpose |
 | --- | --- |
-| `BAHIRLEDGER_DB_URL` | PostgreSQL JDBC URL, e.g. `jdbc:postgresql://db-host:5432/bahirledger?sslmode=verify-full` |
-| `BAHIRLEDGER_DB_USERNAME` | Database service identity, supplied by deployment secrets |
-| `BAHIRLEDGER_DB_PASSWORD` | Database password, supplied by deployment secrets |
-| `BAHIRLEDGER_WEB_ORIGIN` | Optional single exact localhost HTTP(S) origin with explicit port; empty disables cross-origin access |
+| `bahirledger.database.url` | PostgreSQL JDBC URL; template: `jdbc:postgresql://localhost:5433/bahir_ledger`. Adjust to the actual service; use verified TLS for deployment |
+| `bahirledger.database.username` | Database service identity; blank in the template, fill privately |
+| `bahirledger.database.password` | Database password; blank in the template, fill privately |
 
 **The current database property values were deliberately preserved, not replaced.**
-Review and externalize machine-local database settings before any
-deployment; environment secrets are the intended deployment mechanism. Use a private
-database with TLS, suitable permissions, backups and an external secret manager.
+They are private, not checked-in configuration. Before deployment, review protected
+configuration/artifact handling and secret management; never publish the development
+JAR with embedded credentials. Use a private database with TLS, suitable permissions
+and backups.
 Keep credentials out of the JDBC URL, command arguments and logs. Flyway applies
 [V1 account migration](src/main/resources/db/migration/V1__accounts.sql) and
 [additive V2 verification migration](src/main/resources/db/migration/V2__email_verification.sql)
@@ -270,10 +309,10 @@ There is no destructive schema recreation or startup password overwrite. The
 database identity currently needs migration privileges; separating migration and
 runtime identities is a deployment-hardening follow-up.
 
-Run with the configured environment via `./mvnw spring-boot:run` or the executable
-JAR produced by `verify`. Public managed registration is implemented, but production
-invitations and tenant membership are not. `BAHIRLEDGER_DEV_*`
-has no effect without the local profile. PostgreSQL is the implemented target, but
+Run with the completed private properties via `./mvnw spring-boot:run`. An executable
+JAR produced by `verify` also contains resource configuration and must remain private
+if it includes credentials. Public managed registration is implemented, but production
+invitations and tenant membership are not. PostgreSQL is the implemented target, but
 this test suite does not certify a live PostgreSQL deployment. V1-to-V2 preservation,
 token storage and concurrent transactions are tested with H2 only. Live HTTP/file-delivery
 and browser-link/CORS checks are recorded [above](#verification-validation--2026-10-03),
@@ -308,7 +347,8 @@ were run against an existing user server/database during these checks.
 - CORS accepts only one exact configured loopback origin, the listed methods per
 	route, Authorization and Content-Type headers. No wildcards or credentials.
 	Different ports, `null` origins, unlisted routes/methods/headers are denied.
-	The development default applies **only** in the local profile. Non-local browser
+	The private template explicitly configures localhost port 8765 independently of
+	the local database profile. Non-loopback browser
 	origins require a subsequent reviewed deployment policy, not a wildcard workaround.
 - CSRF ignores only exact **POST** login, register, logout, email-verification/confirm
 	and email-verification/resend, since credentials/tokens are explicit
@@ -332,5 +372,5 @@ or limits are shared. HTTPS is mandatory outside loopback development.
 
 Internal `AccessPolicy` remains a separately tested policy primitive, not a
 membership API or full authorization implementation. VS Code backend verify/run
-tasks can still be used with the correct Java/database environment. Do not disable
+tasks can still be used with a full JDK 21 and completed private properties. Do not disable
 the fail-closed boundary to experiment with future endpoints.

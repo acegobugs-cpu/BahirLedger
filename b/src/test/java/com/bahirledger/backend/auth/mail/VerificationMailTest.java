@@ -71,6 +71,24 @@ class VerificationMailTest {
     }
 
     @Test
+    void postgresDevelopmentCanOptIntoLoopbackLinksWithoutWeakeningSmtpOrFilePolicy() {
+        var env = smtpEnvironment()
+                .withProperty("bahirledger.mail.mode", "smtp")
+                .withProperty("bahirledger.mail.verification-web-origin", "http://localhost:8765");
+        var config = new VerificationMailConfiguration();
+        assertThatThrownBy(() -> config.verificationMailSender(env)).isInstanceOf(IllegalStateException.class);
+        env.setProperty("bahirledger.mail.allow-loopback-http", "true");
+        assertThatCode(() -> config.verificationMailSender(env)).doesNotThrowAnyException();
+        env.setProperty("bahirledger.mail.verification-web-origin", "http://external.example.test");
+        assertThatThrownBy(() -> config.verificationMailSender(env)).isInstanceOf(IllegalStateException.class);
+        env.setProperty("bahirledger.mail.verification-web-origin", "http://localhost:8765");
+        env.setProperty("bahirledger.mail.smtp.starttls", "false");
+        assertThatThrownBy(() -> config.verificationMailSender(env)).isInstanceOf(IllegalStateException.class);
+        env.setProperty("bahirledger.mail.mode", "file");
+        assertThatThrownBy(() -> config.verificationMailSender(env)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void fileModeIsRejectedOutsideExclusivelyLocalProfileAndUnknownModesFailClosed() {
         var env = new MockEnvironment().withProperty("bahirledger.mail.mode", "file")
                 .withProperty("bahirledger.mail.verification-web-origin", "https://app.example.test");
