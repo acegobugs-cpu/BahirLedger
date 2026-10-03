@@ -9,10 +9,14 @@ class SignInPage extends StatefulWidget {
     required this.session,
     required this.onSignUp,
     required this.onExploreDemo,
+    this.verificationMessage,
+    this.onCancelVerification,
   });
   final SessionController session;
   final VoidCallback onSignUp;
   final VoidCallback onExploreDemo;
+  final String? verificationMessage;
+  final VoidCallback? onCancelVerification;
 
   @override
   State<SignInPage> createState() => _SignInPageState();
@@ -53,8 +57,16 @@ class _SignInPageState extends State<SignInPage> {
             Text('Sign in', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 8),
             const Text(
-              'Use your provisioned local account email and password.',
+              'Sign in with your account email and password. Unverified accounts can verify their email after signing in.',
             ),
+            if (widget.verificationMessage case final message?) ...[
+              const SizedBox(height: 12),
+              Text(message),
+              TextButton(
+                onPressed: widget.onCancelVerification,
+                child: const Text('Cancel pending verification'),
+              ),
+            ],
             const SizedBox(height: 24),
             TextFormField(
               key: const Key('email'),
@@ -143,14 +155,19 @@ class _SignInPageState extends State<SignInPage> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Account provisioning and invitations are planned for a future release. Self-service registration is not available.',
+              'New here? Create an account below. Signing in or verifying email does not grant organization membership or project access.',
               style: TextStyle(fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 16),
             TextButton(
               onPressed: busy ? null : widget.onSignUp,
-              style: TextButton.styleFrom(textStyle: const TextStyle(fontSize: 12, height: 1.5)),
-              child: const Text('Don\'t have an account? Sign up', textAlign: TextAlign.center),
+              style: TextButton.styleFrom(
+                textStyle: const TextStyle(fontSize: 12, height: 1.5),
+              ),
+              child: const Text(
+                'Don\'t have an account? Sign up',
+                textAlign: TextAlign.center,
+              ),
             ),
             TextButton(
               onPressed: busy ? null : widget.onExploreDemo,

@@ -15,6 +15,7 @@ const user = {
   'id': 'user-1',
   'email': 'person@example.com',
   'displayName': 'Local User',
+  'emailVerified': true,
 };
 
 void main() {

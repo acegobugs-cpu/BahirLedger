@@ -1,0 +1,73 @@
+{
+  "properties": [
+    {
+      "name": "bahirledger.auth.web-origin",
+      "type": "java.lang.String",
+      "description": "Exact loopback browser CORS origin, or empty to disable cross-origin access."
+    },
+    {
+      "name": "bahirledger.database.url",
+      "type": "java.lang.String",
+      "description": "Database JDBC URL; overridden by nonblank BAHIRLEDGER_DB_URL."
+    },
+    {
+      "name": "bahirledger.database.username",
+      "type": "java.lang.String",
+      "description": "Database identity; overridden by nonblank BAHIRLEDGER_DB_USERNAME."
+    },
+    {
+      "name": "bahirledger.database.password",
+      "type": "java.lang.String",
+      "description": "Database secret; overridden by nonblank BAHIRLEDGER_DB_PASSWORD."
+    },
+    {
+      "name": "bahirledger.mail.mode",
+      "type": "java.lang.String",
+      "defaultValue": "disabled",
+      "description": "Verification delivery: disabled, smtp, or exclusively-local file outbox."
+    },
+    {
+      "name": "bahirledger.mail.verification-web-origin",
+      "type": "java.lang.String",
+      "description": "Configured public frontend origin for fragment-only email links; HTTPS except explicit local loopback."
+    },
+    {
+      "name": "bahirledger.mail.smtp.host",
+      "type": "java.lang.String",
+      "description": "Explicit SMTP host."
+    },
+    {
+      "name": "bahirledger.mail.smtp.port",
+      "type": "java.lang.Integer",
+      "defaultValue": 587,
+      "description": "SMTP port; this adapter uses STARTTLS, not implicit TLS."
+    },
+    {
+      "name": "bahirledger.mail.smtp.from",
+      "type": "java.lang.String",
+      "description": "Required explicit single sender email address for SMTP."
+    },
+    {
+      "name": "bahirledger.mail.smtp.username",
+      "type": "java.lang.String",
+      "description": "SMTP AUTH identity; supply together with password or leave both empty for a trusted relay."
+    },
+    {
+      "name": "bahirledger.mail.smtp.password",
+      "type": "java.lang.String",
+      "description": "SMTP AUTH secret; never log or place in command arguments."
+    },
+    {
+      "name": "bahirledger.mail.smtp.starttls",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Require STARTTLS. False is permitted only for exclusively-local loopback SMTP."
+    }
+  ],
+  "hints": [
+    {
+      "name": "bahirledger.mail.mode",
+      "values": [{"value": "disabled"}, {"value": "smtp"}, {"value": "file"}]
+    }
+  ]
+}

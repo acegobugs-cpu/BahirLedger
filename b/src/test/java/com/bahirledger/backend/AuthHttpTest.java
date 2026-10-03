@@ -42,7 +42,7 @@ import static org.mockito.Mockito.doThrow;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "bahirledger.auth.web-origin=http://localhost:8765")
-@Import(AuthTestConfiguration.class)
+@Import({AuthTestConfiguration.class, MailCaptureTestConfiguration.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ExtendWith(OutputCaptureExtension.class)
 class AuthHttpTest {

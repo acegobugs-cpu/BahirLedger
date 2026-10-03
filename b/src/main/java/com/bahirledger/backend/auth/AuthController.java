@@ -16,10 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService auth;
     private final SessionStore sessions;
+    private final EmailVerificationService verification;
 
-    public AuthController(AuthService auth, SessionStore sessions) {
+    public AuthController(AuthService auth, SessionStore sessions, EmailVerificationService verification) {
         this.auth = auth;
         this.sessions = sessions;
+        this.verification = verification;
     }
 
     @PostMapping(value = "/auth/register", consumes = "application/json")
@@ -34,6 +36,17 @@ public class AuthController {
 
     @GetMapping("/me")
     public UserView me(@AuthenticationPrincipal UserView user) { return user; }
+
+    @PostMapping(value = "/auth/email-verification/confirm", consumes = "application/json")
+    public UserView confirm(@AuthenticationPrincipal UserView user, @RequestBody VerificationRequest request) {
+        return verification.confirm(user.id(), request.token());
+    }
+
+    @PostMapping("/auth/email-verification/resend")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resend(@AuthenticationPrincipal UserView user) {
+        verification.resend(user.id());
+    }
 
     @PostMapping("/auth/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)

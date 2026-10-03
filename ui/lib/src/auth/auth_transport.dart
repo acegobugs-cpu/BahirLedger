@@ -11,20 +11,24 @@ class AccountUser {
     required this.id,
     required this.email,
     required this.displayName,
+    required this.emailVerified,
   });
 
   factory AccountUser.fromJson(Object? value) {
     if (value is! Map<String, dynamic>) throw const FormatException();
+    if (value['emailVerified'] is! bool) throw const FormatException();
     return AccountUser(
       id: _text(value['id']),
       email: _text(value['email']),
       displayName: _text(value['displayName']),
+      emailVerified: value['emailVerified'] as bool,
     );
   }
 
   final String id;
   final String email;
   final String displayName;
+  final bool emailVerified;
 }
 
 String _text(Object? value) {
@@ -33,8 +37,14 @@ String _text(Object? value) {
 }
 
 class AuthFailure implements Exception {
-  const AuthFailure(this.message);
+  const AuthFailure(
+    this.message, {
+    this.endsSession = false,
+    this.cooldown = false,
+  });
   final String message;
+  final bool endsSession;
+  final bool cooldown;
 
   @override
   String toString() => message;
@@ -64,12 +74,17 @@ class AuthTransport {
   final Duration timeout;
   final _pending = <Completer<void>>{};
   String? _token;
+  String? _accountId;
   int _generation = 0;
   bool _disposed = false;
 
   static const invalidResponse =
       'The sign-in service returned an invalid response. Please try again.';
   static const expired = 'Your session expired. Please sign in again.';
+  static const invalidVerification =
+      'This verification token is invalid, expired, already used, or belongs to another account. Check the account email or request a new token.';
+  static const signupMailUnavailable =
+      'Verification mail is unavailable. Your account may already exist. Please sign in and resend verification instead of repeatedly signing up.';
 
   Future<http.Response> _request(
     String method,
@@ -145,6 +160,9 @@ class AuthTransport {
         },
       );
       _checkCurrent(generation);
+      if (response.statusCode == 503) {
+        throw const AuthFailure(signupMailUnavailable);
+      }
       _expectSuccess(response);
       final json = jsonDecode(utf8.decode(response.bodyBytes));
       if (json is! Map<String, dynamic>) throw const FormatException();
@@ -174,6 +192,7 @@ class AuthTransport {
       final user = AccountUser.fromJson(jsonDecode(utf8.decode(me.bodyBytes)));
       if (user.id != signUpUser.id) throw const FormatException();
       if (!expiresAt.isAfter(_clock())) throw const AuthFailure(expired);
+      _accountId = user.id;
       return AuthenticatedAccount(user, expiresAt);
     } on AuthFailure {
       if (generation == _generation) clearSession();
@@ -226,6 +245,7 @@ class AuthTransport {
       final user = AccountUser.fromJson(jsonDecode(utf8.decode(me.bodyBytes)));
       if (user.id != loginUser.id) throw const FormatException();
       if (!expiresAt.isAfter(_clock())) throw const AuthFailure(expired);
+      _accountId = user.id;
       return AuthenticatedAccount(user, expiresAt);
     } on AuthFailure {
       if (generation == _generation) clearSession();
@@ -234,6 +254,89 @@ class AuthTransport {
       if (generation == _generation) clearSession();
       throw const AuthFailure(invalidResponse);
     }
+  }
+
+  void _expectVerification(http.Response response, int expected) {
+    if (response.statusCode == expected) return;
+    if (response.statusCode == 401) {
+      clearSession();
+      throw const AuthFailure(expired, endsSession: true);
+    }
+    throw AuthFailure(switch (response.statusCode) {
+      400 => invalidVerification,
+      429 => 'Too many verification attempts. Please wait before trying again.',
+      503 =>
+        'Verification mail or service is unavailable. Please try again later.',
+      _ => 'The verification service is unavailable. Please try again later.',
+    }, cooldown: response.statusCode == 429);
+  }
+
+  Future<http.Response> _accountRequest(
+    String method,
+    String path, {
+    Map<String, String>? body,
+    int expected = 200,
+  }) async {
+    final generation = _generation;
+    if (_token == null || _accountId == null) {
+      throw const AuthFailure(expired, endsSession: true);
+    }
+    final response = await _request(method, path, token: _token, body: body);
+    _checkCurrent(generation);
+    _expectVerification(response, expected);
+    return response;
+  }
+
+  AccountUser _readCurrentUser(
+    http.Response response, {
+    bool confirmed = false,
+  }) {
+    try {
+      final user = AccountUser.fromJson(
+        jsonDecode(utf8.decode(response.bodyBytes)),
+      );
+      if (user.id != _accountId || (confirmed && !user.emailVerified)) {
+        throw const FormatException();
+      }
+      return user;
+    } catch (_) {
+      clearSession();
+      throw const AuthFailure(invalidResponse, endsSession: true);
+    }
+  }
+
+  Future<AccountUser> _loadUser(
+    String method,
+    String path, {
+    Map<String, String>? body,
+    bool confirmed = false,
+  }) async {
+    final generation = _generation;
+    final response = await _accountRequest(method, path, body: body);
+    _checkCurrent(generation);
+    return _readCurrentUser(response, confirmed: confirmed);
+  }
+
+  Future<AccountUser> refreshUser() => _loadUser('GET', '/me');
+
+  Future<AccountUser> confirmEmail(String token) async {
+    if (!RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(token)) {
+      throw const AuthFailure(invalidVerification);
+    }
+    return _loadUser(
+      'POST',
+      '/auth/email-verification/confirm',
+      body: {'token': token},
+      confirmed: true,
+    );
+  }
+
+  Future<void> resendVerification() async {
+    await _accountRequest(
+      'POST',
+      '/auth/email-verification/resend',
+      expected: 204,
+    );
   }
 
   /// Clear local credentials before attempting remote revocation.
@@ -254,6 +357,7 @@ class AuthTransport {
   void clearSession() {
     _generation++;
     _token = null;
+    _accountId = null;
     for (final abort in _pending) {
       if (!abort.isCompleted) abort.complete();
     }

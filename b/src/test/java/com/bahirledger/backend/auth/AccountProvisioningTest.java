@@ -48,6 +48,7 @@ class AccountProvisioningTest {
         bootstrap(environment);
         var first = accounts.findByEmail("local@example.test").orElseThrow();
         assertThat(first.user().displayName()).isEqualTo("Local Person");
+        assertThat(first.user().emailVerified()).isFalse();
         assertThat(first.passwordHash()).startsWith("$2a$12$");
         assertThat(encoder.matches("Synthetic-bootstrap-test-password!", first.passwordHash())).isTrue();
         environment.setProperty("BAHIRLEDGER_DEV_PASSWORD", "Different-synthetic-test-password!");

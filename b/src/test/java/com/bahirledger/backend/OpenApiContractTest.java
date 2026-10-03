@@ -18,7 +18,16 @@ class OpenApiContractTest {
             Map<String, Object> document = new Yaml(new SafeConstructor(new LoaderOptions())).load(input);
             assertThat(document).containsEntry("openapi", "3.1.0");
             var paths = (Map<?, ?>) document.get("paths");
-            assertThat(paths.keySet()).isEqualTo(Set.of("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/me", "/api/v1/auth/logout"));
+            assertThat(paths.keySet()).isEqualTo(Set.of("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/me", "/api/v1/auth/logout",
+                    "/api/v1/auth/email-verification/confirm", "/api/v1/auth/email-verification/resend"));
+            var components = (Map<?, ?>) document.get("components");
+            var schemas = (Map<?, ?>) components.get("schemas");
+            var user = (Map<?, ?>) schemas.get("User");
+            assertThat(((java.util.List<?>) user.get("required")).contains("emailVerified")).isTrue();
+            assertThat(((Map<?, ?>) ((Map<?, ?>) user.get("properties")).get("emailVerified")).get("type")).isEqualTo("boolean");
+            for (String path : Set.of("/api/v1/auth/email-verification/confirm", "/api/v1/auth/email-verification/resend")) {
+                assertThat(((Map<?, ?>) paths.get(path)).keySet()).isEqualTo(Set.of("post"));
+            }
             checkReferences(document, document);
         }
     }

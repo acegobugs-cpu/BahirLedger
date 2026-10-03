@@ -1,13 +1,14 @@
 openapi: 3.1.0
 info:
   title: BahirLedger Managed Authentication
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     BahirLedger-managed email/password sign-in is the default. Organization SSO is a
     future optional feature, not an available login mode. Registration, login and process
     liveness are public application operations. Listed browser CORS preflights are
     also permitted for the exact configured loopback origin. All other routes and
-    methods are denied. No membership, email verification, refresh or business API is exposed.
+    methods are denied. Email verification requires an active account-only bearer session.
+    No membership, refresh or business API is exposed; verification grants no tenant access.
     Use HTTPS outside loopback development. Clients must keep access tokens only
     in memory, including on web: never cookies, localStorage, URLs or logs.
 security:
@@ -51,7 +52,8 @@ paths:
         verification is performed for unknown accounts. No cookie is created.
         Login is CSRF-exempt because no ambient cookie authentication exists.
         Tokens expire absolutely 30 minutes after issuance, without refresh.
-        All sessions are lost on backend restart.
+        All sessions are lost on backend restart. Unverified accounts may log in;
+        login does not send email or implicitly verify ownership.
       requestBody:
         required: true
         content:
@@ -127,7 +129,13 @@ paths:
         Email is normalized as for login. Password is not trimmed. This exact POST
         route is CSRF-exempt without cookie authentication and shares login's
         source/email throttles, concurrency cap and 4096-byte body limit.
-        No email verification, organization membership or project access is granted.
+        The account starts with emailVerified false. Automatically attempts verification
+        email delivery before issuing a session. Mail unavailable returns 503 without a
+        session; the pending account may remain. Log in and resend after cooldown,
+        rather than registering again. Duplicate registration (including a constraint
+        race) returns 409 and sends no mail. No organization membership or project
+        access is granted. A 200 means configured delivery accepted the email,
+        not that the email reached the inbox or that the account is verified.
       requestBody:
         required: true
         content:
@@ -186,6 +194,99 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example: {code: conflict, message: 'Email is already registered.'}
+        '429':
+          $ref: '#/components/responses/Throttled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/email-verification/confirm:
+    post:
+      operationId: confirmEmailVerification
+      summary: Verify email ownership for the current active account
+      description: >-
+        Requires the current bearer, even when the email link is opened. JSON is
+        bounded to 4096 bytes before parsing, including chunked requests. Token is
+        43 base64url characters from 32 random bytes, valid strictly before its
+        30-minute expiry. Invalid, expired, replayed, rotated and wrong-account
+        tokens have the same generic 400 response. Confirmation atomically consumes
+        the token and sets emailVerified true. Does not extend or replace the
+        bearer session or grant membership. Exact POST-only CSRF exception.
+        Five-minute confirm budgets are 10 per account, 20 per direct source and
+        100 globally, including malformed authenticated requests and successes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  writeOnly: true
+                  pattern: '^[A-Za-z0-9_-]{43}$'
+      responses:
+        '200':
+          description: Updated identity, same shape as GET /api/v1/me; emailVerified is true
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: >-
+            Invalid/expired/replayed/wrong-account token uses invalid_verification_token.
+            Malformed/missing JSON, unsupported media type or oversized body uses invalid_request.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                token:
+                  value: {code: invalid_verification_token, message: 'Verification token is invalid or expired.'}
+                body:
+                  value: {code: invalid_request, message: 'Request is invalid.'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/Throttled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/email-verification/resend:
+    post:
+      operationId: resendEmailVerification
+      summary: Send a new verification email for the current active account
+      description: >-
+        No request body (nonempty bodies return 400). Requires the current bearer.
+        Already verified is a 204 no-op without email. Otherwise 204 means configured
+        delivery accepted the email, not inbox receipt. Rotates the previous token;
+        persistent per-account cooldown is 60 seconds, including delivery failures.
+        Failure returns 503, leaves the account pending and invalidates the previous
+        token. Five-minute resend budgets are 3 attempts per unverified account,
+        10 per direct source and 30 globally, including rejected requests. Source
+        budgets also apply to verified no-ops. Exact POST-only CSRF exception.
+      responses:
+        '204':
+          description: Email accepted by configured delivery, or already verified; empty response
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '429':
           $ref: '#/components/responses/Throttled'
         '503':
@@ -255,7 +356,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, displayName]
+      required: [id, email, displayName, emailVerified]
       properties:
         id:
           type: string
@@ -269,6 +370,9 @@ components:
         displayName:
           type: string
           maxLength: 120
+        emailVerified:
+          type: boolean
+          description: Required email ownership flag. Defaults false for new, migrated and locally provisioned accounts; not a membership grant.
     Error:
       type: object
       additionalProperties: false
@@ -276,7 +380,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, invalid_credentials, unauthorized, forbidden, conflict, too_many_requests, service_unavailable, internal_error]
+          enum: [invalid_request, invalid_verification_token, invalid_credentials, unauthorized, forbidden, conflict, too_many_requests, service_unavailable, internal_error]
         message:
           type: string
           description: Fixed generic message; never request values, credentials or exception details.
@@ -317,7 +421,9 @@ components:
         email, 20 per direct source IP, 100 globally, including successful logins.
         Malformed requests count against source/global limits. Forwarded IP headers
         are not trusted. Also returned if four concurrent password checks or the
-        10000-entry session/throttle capacity is saturated. No Retry-After guarantee.
+        10000-entry session/throttle capacity is saturated. Verification has separate
+        route-specific budgets, four concurrent mail operations, and a durable
+        60-second per-account resend cooldown. No Retry-After guarantee.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -327,7 +433,7 @@ components:
             $ref: '#/components/schemas/Error'
           example: {code: too_many_requests, message: 'Too many requests. Try again later.'}
     Unavailable:
-      description: Account database temporarily unavailable; no exception details
+      description: Database or configured mail delivery unavailable (including disabled mail); no exception details
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'

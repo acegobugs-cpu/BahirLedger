@@ -9,10 +9,14 @@ class SignUpPage extends StatefulWidget {
     required this.session,
     required this.onSignIn,
     required this.onExploreDemo,
+    this.verificationMessage,
+    this.onCancelVerification,
   });
   final SessionController session;
   final VoidCallback onSignIn;
   final VoidCallback onExploreDemo;
+  final String? verificationMessage;
+  final VoidCallback? onCancelVerification;
 
   @override
   State<SignUpPage> createState() => _SignUpPageState();
@@ -55,8 +59,16 @@ class _SignUpPageState extends State<SignUpPage> {
             Text('Sign up', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 8),
             const Text(
-              'Use your provisioned local account email and password.',
+              'Create an account with your email and password, then verify your email.',
             ),
+            if (widget.verificationMessage case final message?) ...[
+              const SizedBox(height: 12),
+              Text(message),
+              TextButton(
+                onPressed: widget.onCancelVerification,
+                child: const Text('Cancel pending verification'),
+              ),
+            ],
             const SizedBox(height: 24),
             TextFormField(
               key: const Key('userName'),
@@ -156,7 +168,7 @@ class _SignUpPageState extends State<SignUpPage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                           SizedBox(width: 12),
-                          Flexible(child: Text('Signing in…')),
+                          Flexible(child: Text('Creating account…')),
                         ],
                       )
                     : const Text('Sign up'),
@@ -164,14 +176,19 @@ class _SignUpPageState extends State<SignUpPage> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Account provisioning and invitations are planned for a future release. Self-service registration is not available.',
+              'Creating an account or verifying email does not grant organization membership or project access. Invitations are not implemented.',
               style: TextStyle(fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 16),
             TextButton(
               onPressed: busy ? null : widget.onSignIn,
-              style: TextButton.styleFrom(textStyle: const TextStyle(fontSize: 12, height: 1.5)),
-              child: const Text('Already have an account? Sign in', textAlign: TextAlign.center),
+              style: TextButton.styleFrom(
+                textStyle: const TextStyle(fontSize: 12, height: 1.5),
+              ),
+              child: const Text(
+                'Already have an account? Sign in',
+                textAlign: TextAlign.center,
+              ),
             ),
             TextButton(
               onPressed: busy ? null : widget.onExploreDemo,

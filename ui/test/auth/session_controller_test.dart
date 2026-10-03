@@ -13,6 +13,7 @@ const user = {
   'id': 'user-1',
   'email': 'person@example.com',
   'displayName': 'Local User',
+  'emailVerified': true,
 };
 final start = DateTime.utc(2026, 10, 3, 12);
 

@@ -23,11 +23,14 @@ public final class BearerSessionFilter extends OncePerRequestFilter {
     private final SessionStore sessions;
     private final AccountStore accounts;
     private final LoginThrottle throttle;
+        private final VerificationThrottle verificationThrottle;
 
-    public BearerSessionFilter(SessionStore sessions, AccountStore accounts, LoginThrottle throttle) {
+        public BearerSessionFilter(SessionStore sessions, AccountStore accounts, LoginThrottle throttle,
+            VerificationThrottle verificationThrottle) {
         this.sessions = sessions;
         this.accounts = accounts;
         this.throttle = throttle;
+        this.verificationThrottle = verificationThrottle;
     }
 
     @Override
@@ -47,7 +50,26 @@ public final class BearerSessionFilter extends OncePerRequestFilter {
                 if (body.length > 4096) throw ApiException.validation();
                 filtered = bodyRequest(request, body);
             } else {
+                boolean confirm = request.getMethod().equals("POST")
+                        && request.getServletPath().equals("/api/v1/auth/email-verification/confirm");
+                boolean resend = request.getMethod().equals("POST")
+                        && request.getServletPath().equals("/api/v1/auth/email-verification/resend");
                 authenticate(request);
+                if (confirm || resend) {
+                    var authentication = SecurityContextHolder.getContext().getAuthentication();
+                    if (authentication == null) throw ApiException.unauthorized();
+                    verificationThrottle.checkSource(confirm, request.getRemoteAddr());
+                    var user = (UserView) authentication.getPrincipal();
+                    // Already-verified resend is a no-op; no account email budget is spent.
+                    if (confirm || !user.emailVerified()) verificationThrottle.checkAccount(confirm, user.id());
+                    if (confirm) {
+                        byte[] body = request.getInputStream().readNBytes(4097);
+                        if (body.length > 4096) throw ApiException.validation();
+                        filtered = bodyRequest(request, body);
+                    } else if (request.getInputStream().read() != -1) {
+                        throw ApiException.validation();
+                    }
+                }
             }
         } catch (ApiException error) {
             ApiErrors.write(response, error);

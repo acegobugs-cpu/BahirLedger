@@ -60,10 +60,27 @@ class AuthStateTest {
         var sessions = mock(SessionStore.class);
         when(encoder.encode(anyString())).thenReturn("synthetic-dummy-hash");
         when(accounts.findByEmail("unknown@example.test")).thenReturn(java.util.Optional.empty());
-        var service = new AuthService(accounts, encoder, sessions, new LoginThrottle(new MutableClock()));
+        var service = new AuthService(accounts, encoder, sessions, new LoginThrottle(new MutableClock()),
+            mock(EmailVerificationService.class));
         assertThatThrownBy(() -> service.login(new LoginRequest("unknown@example.test", "synthetic-test-password")))
                 .isInstanceOf(ApiException.class);
         verify(encoder).matches("synthetic-test-password", "synthetic-dummy-hash");
         verifyNoInteractions(sessions);
+    }
+
+    @Test
+    void duplicateConstraintRaceMapsToConflictWithoutDeliveryOrSession() {
+        var accounts = mock(AccountStore.class);
+        var encoder = mock(PasswordEncoder.class);
+        var sessions = mock(SessionStore.class);
+        var verification = mock(EmailVerificationService.class);
+        when(encoder.encode(anyString())).thenReturn("synthetic-hash");
+        when(accounts.create(anyString(), anyString(), anyString()))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException("synthetic-sql-detail"));
+        var service = new AuthService(accounts, encoder, sessions, new LoginThrottle(new MutableClock()), verification);
+        assertThatThrownBy(() -> service.register(new RegisterRequest("race@example.test", "Race", "synthetic-password")))
+                .isInstanceOf(ApiException.class).hasMessageNotContaining("synthetic-sql-detail")
+                .satisfies(error -> assertThat(((ApiException) error).status()).isEqualTo(409));
+        verifyNoInteractions(verification, sessions);
     }
 }

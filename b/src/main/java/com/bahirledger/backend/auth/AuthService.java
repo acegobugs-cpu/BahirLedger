@@ -3,6 +3,7 @@ package com.bahirledger.backend.auth;
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -12,14 +13,17 @@ public class AuthService {
     private final PasswordEncoder encoder;
     private final SessionStore sessions;
     private final LoginThrottle throttle;
+    private final EmailVerificationService verification;
     private final Semaphore passwordWork = new Semaphore(4);
     private final String dummyHash;
 
-    public AuthService(AccountStore accounts, PasswordEncoder encoder, SessionStore sessions, LoginThrottle throttle) {
+        public AuthService(AccountStore accounts, PasswordEncoder encoder, SessionStore sessions, LoginThrottle throttle,
+            EmailVerificationService verification) {
         this.accounts = accounts;
         this.encoder = encoder;
         this.sessions = sessions;
         this.throttle = throttle;
+        this.verification = verification;
         dummyHash = encoder.encode(UUID.randomUUID().toString());
     }
 
@@ -29,7 +33,15 @@ public class AuthService {
         try {
             var account = accounts.findByEmail(request.email());
             if (account.isPresent()) throw ApiException.conflict();
-            var user = accounts.create(request.email(), request.displayName(), encoder.encode(request.password()));
+            UserView user;
+            try {
+                user = accounts.create(request.email(), request.displayName(), encoder.encode(request.password()));
+            } catch (DuplicateKeyException race) {
+                // A concurrent registration won. Never send another email or overwrite that account.
+                throw ApiException.conflict();
+            }
+            // Account creation is durable even if mail fails. Do not allocate a hidden session on failure.
+            verification.resend(user.id());
             var issued = sessions.issue(user.id());
             return new RegisterResponse(issued.accessToken(), issued.expiresAt(), user);
         } finally {

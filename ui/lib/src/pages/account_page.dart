@@ -57,6 +57,16 @@ class AccountPage extends StatelessWidget {
             'Sessions last up to 30 minutes. Closing or reloading the app signs you out locally.',
           ),
           const SizedBox(height: 24),
+          const Text('Email verified'),
+          if (session.message case final message?) ...[
+            const SizedBox(height: 12),
+            Semantics(liveRegion: true, child: Text(message)),
+          ],
+          TextButton(
+            onPressed: session.verificationBusy ? null : session.refreshUser,
+            child: const Text('Check verification status'),
+          ),
+          const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: session.logout,
             icon: const Icon(Icons.logout),

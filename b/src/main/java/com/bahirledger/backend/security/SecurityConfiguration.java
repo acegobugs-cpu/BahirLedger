@@ -15,6 +15,7 @@ import com.bahirledger.backend.auth.ApiException;
 import com.bahirledger.backend.auth.BearerSessionFilter;
 import com.bahirledger.backend.auth.LoginThrottle;
 import com.bahirledger.backend.auth.SessionStore;
+import com.bahirledger.backend.auth.VerificationThrottle;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -75,6 +76,8 @@ public class SecurityConfiguration {
         source.registerCorsConfiguration("/api/v1/auth/login", cors);
         source.registerCorsConfiguration("/api/v1/auth/register", cors);
         source.registerCorsConfiguration("/api/v1/auth/logout", cors);
+        source.registerCorsConfiguration("/api/v1/auth/email-verification/confirm", cors);
+        source.registerCorsConfiguration("/api/v1/auth/email-verification/resend", cors);
         var readCors = new CorsConfiguration(cors);
         readCors.setAllowedMethods(List.of("GET"));
         source.registerCorsConfiguration("/api/v1/me", readCors);
@@ -100,13 +103,18 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, SessionStore sessions, AccountStore accounts,
-            LoginThrottle throttle, CorsConfigurationSource corsConfigurationSource) throws Exception {
+            LoginThrottle throttle, VerificationThrottle verificationThrottle,
+            CorsConfigurationSource corsConfigurationSource) throws Exception {
         RequestMatcher login = request -> request.getMethod().equals("POST")
                 && request.getServletPath().equals("/api/v1/auth/login");
         RequestMatcher register = request -> request.getMethod().equals("POST")
             && request.getServletPath().equals("/api/v1/auth/register");
         RequestMatcher logout = request -> request.getMethod().equals("POST")
                 && request.getServletPath().equals("/api/v1/auth/logout");
+        RequestMatcher confirm = request -> request.getMethod().equals("POST")
+            && request.getServletPath().equals("/api/v1/auth/email-verification/confirm");
+        RequestMatcher resend = request -> request.getMethod().equals("POST")
+            && request.getServletPath().equals("/api/v1/auth/email-verification/resend");
         var corsFilter = new CorsFilter(corsConfigurationSource);
         corsFilter.setCorsProcessor(new DefaultCorsProcessor() {
             @Override protected void rejectRequest(ServerHttpResponse response) throws IOException {
@@ -125,7 +133,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
                         .requestMatchers(login, register).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/me").authenticated()
-                        .requestMatchers(logout).authenticated()
+                        .requestMatchers(logout, confirm, resend).authenticated()
+                        // Future tenant endpoints must require verified email AND tenant membership.
+                        // Neither account-only sessions nor verification alone grant tenant access.
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
@@ -133,7 +143,7 @@ public class SecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 // No ambient cookie authentication: only these exact POST routes bypass CSRF.
-                .csrf(csrf -> csrf.ignoringRequestMatchers(login, register, logout)
+                .csrf(csrf -> csrf.ignoringRequestMatchers(login, register, logout, confirm, resend)
                         .csrfTokenRepository(new CsrfTokenRepository() {
                             // All other unsafe routes remain denied; never create an HTTP session/cookie.
                             @Override public CsrfToken generateToken(HttpServletRequest request) {
@@ -142,7 +152,7 @@ public class SecurityConfiguration {
                             @Override public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {}
                             @Override public CsrfToken loadToken(HttpServletRequest request) { return null; }
                         }))
-                .addFilterBefore(new BearerSessionFilter(sessions, accounts, throttle), CsrfFilter.class)
+                .addFilterBefore(new BearerSessionFilter(sessions, accounts, throttle, verificationThrottle), CsrfFilter.class)
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, exception) -> ApiErrors.write(response, ApiException.unauthorized()))
                         .accessDeniedHandler((request, response, exception) -> ApiErrors.write(response, ApiException.forbidden())))

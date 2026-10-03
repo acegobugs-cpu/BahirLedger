@@ -1,28 +1,31 @@
 # Authentication, tenancy and configurable access
 
-Updated: 2026-10-03. Confirmed product constraints and security boundaries, with the implemented sign-in slice identified separately below. See [decisions](decisions.md), [architecture](architecture.md) and [current backend scope](b/README.md). Development steps and verification history are kept in local-only records.
+Updated: 2026-10-03. Confirmed product constraints and security boundaries, with implemented account-only signup/sign-in and email verification identified separately below. See [decisions](decisions.md), [architecture](architecture.md) and [current backend scope](b/README.md). Development steps and verification history are kept in local-only records.
 
 ## Confirmed account and organization model
 
 - Self-service organization creation is an accepted product direction, not yet implemented. An organization is an independent workspace/tenant, not a legal entity.
 - One organization per application account; joining an existing organization is invite-only. An existing membership cannot silently move to or join another tenant. Organization creation must enforce the same single-membership invariant atomically.
-- **BahirLedger-managed identity is the default; organization SSO is optional.** Managed signup with verified email is planned, not implemented. Organization creation does not require an organization IdP. This supersedes the earlier mandatory-SSO/no-local-auth decision; see [decision history](decisions.md#superseded-identity-decision--2026-10-03).
+- **BahirLedger-managed identity is the default; organization SSO is optional.** Account-only signup and email verification are implemented; organization bootstrap and invitations are not. Organization creation does not require an organization IdP. This supersedes the earlier mandatory-SSO/no-local-auth decision; see [decision history](decisions.md#superseded-identity-decision--2026-10-03).
 - Personal devices only in the initial scope; shared-device and managed-fleet workflows are not assumed.
 - Managed accounts have a stable application UUID. Future external identity is the validated **issuer + subject** pair. Linking must verify control of both identities; email changes, matching email or domain ownership do not confer membership or automatically link accounts. Provider migration/account recovery needs an explicit reviewed process.
 
-## Implemented sign-in only
+## Implemented account-only signup, sign-in and verification
 
 - Java directly authenticates email/password against JDBC accounts with BCrypt cost 12. Flyway manages account migrations. There is no separate authentication server, OIDC flow, cookie authentication, HTTP session or refresh token.
-- Explicit `local` profile provisioning requires all of `BAHIRLEDGER_DEV_EMAIL`, `BAHIRLEDGER_DEV_PASSWORD` and `BAHIRLEDGER_DEV_NAME`; no default application credentials. Existing normalized-email accounts are unchanged. The local H2 file lives outside the checkout and survives restart. PostgreSQL is the configured deployment target; live PostgreSQL has not been tested. Neither local provisioning nor a database schema is production registration.
+- Public registration creates a durable account, sends verification and issues an account-only session after delivery acceptance. Duplicate signup sends no mail. Delivery failure can leave a pending account without a session; sign in and resend after cooldown. Explicit `local` provisioning remains create-only and requires all three development environment variables; no default application credentials or startup password resets. Local H2 files live outside the checkout; PostgreSQL is the deployment target but live PostgreSQL remains untested.
 - Login returns an opaque bearer token and absolute 30-minute expiry. Flutter stores the raw token only in memory; backend memory holds only SHA-256 digests plus account/expiry. Backend restart invalidates sessions but retains durable accounts. `/me` does not renew expiry and returns identity only, **not organization/project membership or grants**.
-- Flutter confirms `/me` after login, enforces expiry by timer/resume checks and signs out on reload/restart. Web explicitly omits cookies, rejects redirects and disables request caching; native also rejects redirects. Logout clears local state first and warns if remote revocation is unconfirmed. Aborted login, failed identity lookup or app closure may leave a server session until expiry; local clearing is not confirmed remote revocation.
+- Required boolean `emailVerified` defaults false for new, migrated and locally provisioned accounts. Login does not send mail and allows only account/verification operations while pending. Confirmation requires a current same-active-account bearer plus a single-use 30-minute token; only its SHA-256 digest is persisted. Account-row locking serializes confirmation/resend. Resend rotates tokens with a durable 60-second cooldown, including failed delivery; separate bounded per-process rate limits also apply. Verification never renews sessions or grants tenant authority; future tenant APIs must check verified email **and** membership.
+- Flutter confirms `/me` after signup/login and gates unverified accounts on confirmation/resend/status/sign-out; verified accounts see identity only. Verification operations are serialized and stale responses cannot revive cleared sessions. Timer/resume expiry and reload/restart sign-out remain enforced. Web omits cookies, rejects redirects and disables caching; native also rejects redirects. Logout clears locally first and warns if remote revocation is unconfirmed. Aborted login, failed identity lookup or app closure may leave a server session until expiry.
+- Fragment verification links are held only in memory and scrubbed from the current browser URL/history entry before UI handling; same-account sign-in and explicit confirmation are required. Native supports manual token paste or configured trusted full-link paste, not OS universal/app links. Never log/persist tokens; scrubbing cannot erase browser/provider records created before app startup.
+- Real SMTP is configurable but delivery defaults disabled (`503`, not fake success). A private external file outbox is allowed only with the exclusively local profile and does not deliver to an inbox. Adapter acceptance does not guarantee inbox delivery; synchronous delivery has no durable worker/automatic retry or atomic database/mail commit. See [delivery setup and reliability limits](b/README.md#verification-delivery-setup).
 - The separate local project demo grants no membership/permissions. Input limits, generic errors, bounded in-process throttling, no-store responses and fail-closed routing are implemented; they do not make this production-ready. See [API contract summary](api-design.md#implemented-managed-account-authentication), [backend setup/security limits](b/README.md) and [client behavior](ui/README.md).
 
-**Not implemented:** account registration, email verification, invitations, organization bootstrap/membership, password recovery/change, MFA, optional SSO/linking, durable distributed sessions/revocation/throttles, tenant/business APIs, full audit/abuse monitoring or offline security.
+**Not implemented:** invitations, organization bootstrap/membership, password recovery/change, MFA, optional SSO/linking, durable distributed sessions/revocation/throttle maps, tenant/business APIs, full audit/abuse monitoring or offline security. The persistent resend cooldown alone does not provide distributed abuse protection.
 
 ## Bootstrap and invitation boundary
 
-The following is planned production onboarding, not the local development provisioning mechanism:
+The following tenant onboarding remains planned; implemented account creation/email verification supplies only its identity prerequisite, not bootstrap authority:
 
 1. Create/verify a BahirLedger-managed account through a reviewed verified-email registration flow. Possessing an email address or completing login alone grants no tenant access.
 2. Organization creation enters a **restricted pending bootstrap session**. It can configure the proposed workspace but cannot read or mutate tenant domain data or exercise active owner authority. No organization IdP is required.
@@ -69,13 +72,13 @@ Revocation cannot reach a disconnected device until it reconnects; expiry/local 
 
 ## Open decisions before broader implementation
 
-- Managed registration/email verification, exact invitation recipient binding, durable tenancy/atomic bootstrap, password lifecycle/MFA, session hardening and abuse/audit controls.
+- Remaining full interactive browser/manual verification, SMTP/inbox, PostgreSQL and native validation and production mail reliability; live HTTP/file-delivery and browser-link/CORS checks passed (see [validation limits](b/README.md#verification-validation--2026-10-03)). Exact invitation recipient binding, durable tenancy/atomic bootstrap, password lifecycle/MFA, session hardening and abuse/audit controls remain open.
 - Optional SSO provider; OIDC claims/discovery/logout/refresh interoperability; whether non-OIDC federation is deferred or brokered.
 - Provider-control proof, trusted-provider registration, explicit identity linking, account/provider migration and bootstrap abandonment/recovery.
 - Delegated-policy precedence, mandatory-rule representation, recovery and last-owner protection.
 - Accepted offline defaults/exceptions and encrypted pending-work recovery.
 
-Optional-provider selection does not block managed signup design. These outstanding capabilities prevent any claim of complete production authentication, tenant isolation or offline security; the implemented sign-in slice does not satisfy them.
+Optional-provider selection does not block managed signup or durable-tenancy work. These outstanding capabilities prevent any claim of complete production authentication, tenant isolation or offline security; implemented account-only signup/verification does not satisfy them.
 
 ## Planned user-facing access journeys
 

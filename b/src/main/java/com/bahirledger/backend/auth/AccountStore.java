@@ -20,21 +20,21 @@ public class AccountStore {
     }
 
     public Optional<Account> findByEmail(String email) {
-        return jdbc.query("SELECT id, email, display_name, password_hash, active FROM accounts WHERE email = ?",
+        return jdbc.query("SELECT id, email, display_name, password_hash, active, email_verified FROM accounts WHERE email = ?",
                 (rs, row) -> new Account(new UserView(rs.getObject("id", UUID.class), rs.getString("email"),
-                        rs.getString("display_name")), rs.getString("password_hash"), rs.getBoolean("active")),
+                rs.getString("display_name"), rs.getBoolean("email_verified")), rs.getString("password_hash"), rs.getBoolean("active")),
                 normalizeEmail(email)).stream().findFirst();
     }
 
     public Optional<UserView> findActiveUser(UUID id) {
-        return jdbc.query("SELECT id, email, display_name FROM accounts WHERE id = ? AND active = TRUE",
+        return jdbc.query("SELECT id, email, display_name, email_verified FROM accounts WHERE id = ? AND active = TRUE",
                 (rs, row) -> new UserView(rs.getObject("id", UUID.class), rs.getString("email"),
-                        rs.getString("display_name")), id).stream().findFirst();
+                rs.getString("display_name"), rs.getBoolean("email_verified")), id).stream().findFirst();
     }
 
     /** Internal provisioning only. The caller must supply an encoded password. */
     public UserView create(String email, String displayName, String encodedPassword) {
-        var user = new UserView(UUID.randomUUID(), normalizeEmail(email), displayName);
+        var user = new UserView(UUID.randomUUID(), normalizeEmail(email), displayName, false);
         jdbc.update("INSERT INTO accounts (id, email, display_name, password_hash, active) VALUES (?, ?, ?, ?, TRUE)",
                 user.id(), user.email(), user.displayName(), encodedPassword);
         return user;

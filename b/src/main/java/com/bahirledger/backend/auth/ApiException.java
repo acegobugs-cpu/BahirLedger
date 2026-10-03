@@ -29,6 +29,10 @@ public final class ApiException extends RuntimeException {
         return new ApiException(400, "invalid_request", "Request is invalid.");
     }
 
+    public static ApiException invalidVerificationToken() {
+        return new ApiException(400, "invalid_verification_token", "Verification token is invalid or expired.");
+    }
+
     public static ApiException throttled() {
         return new ApiException(429, "too_many_requests", "Too many requests. Try again later.");
     }
