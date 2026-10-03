@@ -16,6 +16,8 @@ import com.bahirledger.backend.auth.BearerSessionFilter;
 import com.bahirledger.backend.auth.LoginThrottle;
 import com.bahirledger.backend.auth.SessionStore;
 import com.bahirledger.backend.auth.VerificationThrottle;
+import com.bahirledger.backend.onboarding.OnboardingRoutes;
+import com.bahirledger.backend.onboarding.TenantThrottle;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,7 +44,7 @@ import org.springframework.web.cors.DefaultCorsProcessor;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
-/** Managed bearer sign-in. Organization SSO and tenant membership are not implemented yet. */
+/** Managed bearer sign-in and narrowly scoped onboarding. No business-route grants. */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
 
@@ -82,6 +84,14 @@ public class SecurityConfiguration {
         readCors.setAllowedMethods(List.of("GET"));
         source.registerCorsConfiguration("/api/v1/me", readCors);
         source.registerCorsConfiguration("/api/v1/health", readCors);
+        source.registerCorsConfiguration("/api/v1/onboarding", readCors);
+        for (String path : OnboardingRoutes.POSTS) {
+            if (!path.equals(OnboardingRoutes.INVITATIONS)) source.registerCorsConfiguration(path, cors);
+        }
+        var invitationCors = new CorsConfiguration(cors);
+        invitationCors.setAllowedMethods(List.of("GET", "POST"));
+        source.registerCorsConfiguration(OnboardingRoutes.INVITATIONS, invitationCors);
+        source.registerCorsConfiguration(OnboardingRoutes.REVOKE_CORS, cors);
         // Spring 7 skips null CORS configuration, including preflights: explicitly deny all others.
         source.registerCorsConfiguration("/**", new CorsConfiguration());
         return source;
@@ -103,7 +113,7 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, SessionStore sessions, AccountStore accounts,
-            LoginThrottle throttle, VerificationThrottle verificationThrottle,
+            LoginThrottle throttle, VerificationThrottle verificationThrottle, TenantThrottle tenantThrottle,
             CorsConfigurationSource corsConfigurationSource) throws Exception {
         RequestMatcher login = request -> request.getMethod().equals("POST")
                 && request.getServletPath().equals("/api/v1/auth/login");
@@ -115,6 +125,8 @@ public class SecurityConfiguration {
             && request.getServletPath().equals("/api/v1/auth/email-verification/confirm");
         RequestMatcher resend = request -> request.getMethod().equals("POST")
             && request.getServletPath().equals("/api/v1/auth/email-verification/resend");
+        RequestMatcher onboarding = OnboardingRoutes::matches;
+        RequestMatcher tenantMutation = OnboardingRoutes::mutation;
         var corsFilter = new CorsFilter(corsConfigurationSource);
         corsFilter.setCorsProcessor(new DefaultCorsProcessor() {
             @Override protected void rejectRequest(ServerHttpResponse response) throws IOException {
@@ -134,6 +146,7 @@ public class SecurityConfiguration {
                         .requestMatchers(login, register).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/me").authenticated()
                         .requestMatchers(logout, confirm, resend).authenticated()
+                        .requestMatchers(onboarding).authenticated()
                         // Future tenant endpoints must require verified email AND tenant membership.
                         // Neither account-only sessions nor verification alone grant tenant access.
                         .anyRequest().denyAll())
@@ -143,7 +156,7 @@ public class SecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 // No ambient cookie authentication: only these exact POST routes bypass CSRF.
-                .csrf(csrf -> csrf.ignoringRequestMatchers(login, register, logout, confirm, resend)
+                .csrf(csrf -> csrf.ignoringRequestMatchers(login, register, logout, confirm, resend, tenantMutation)
                         .csrfTokenRepository(new CsrfTokenRepository() {
                             // All other unsafe routes remain denied; never create an HTTP session/cookie.
                             @Override public CsrfToken generateToken(HttpServletRequest request) {
@@ -152,7 +165,7 @@ public class SecurityConfiguration {
                             @Override public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {}
                             @Override public CsrfToken loadToken(HttpServletRequest request) { return null; }
                         }))
-                .addFilterBefore(new BearerSessionFilter(sessions, accounts, throttle, verificationThrottle), CsrfFilter.class)
+                .addFilterBefore(new BearerSessionFilter(sessions, accounts, throttle, verificationThrottle, tenantThrottle), CsrfFilter.class)
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, exception) -> ApiErrors.write(response, ApiException.unauthorized()))
                         .accessDeniedHandler((request, response, exception) -> ApiErrors.write(response, ApiException.forbidden())))

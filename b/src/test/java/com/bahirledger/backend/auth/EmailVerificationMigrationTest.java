@@ -23,7 +23,7 @@ class EmailVerificationMigrationTest {
         jdbc.update("INSERT INTO accounts VALUES (?, ?, ?, ?, TRUE)", active, "existing@example.test", "Existing", hash);
         jdbc.update("INSERT INTO accounts VALUES (?, ?, ?, ?, FALSE)", inactive, "inactive@example.test", "Inactive", hash);
         var before = jdbc.queryForList("SELECT * FROM accounts ORDER BY email");
-        var flyway = Flyway.configure().dataSource(source).load();
+        var flyway = Flyway.configure().dataSource(source).target("2").load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForList("SELECT id, email, display_name, password_hash, active FROM accounts ORDER BY email")).isEqualTo(before);

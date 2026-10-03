@@ -5,6 +5,9 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
+import com.bahirledger.backend.onboarding.OnboardingRoutes;
+import com.bahirledger.backend.onboarding.TenantThrottle;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
@@ -24,19 +27,22 @@ public final class BearerSessionFilter extends OncePerRequestFilter {
     private final AccountStore accounts;
     private final LoginThrottle throttle;
         private final VerificationThrottle verificationThrottle;
+    private final TenantThrottle tenantThrottle;
 
         public BearerSessionFilter(SessionStore sessions, AccountStore accounts, LoginThrottle throttle,
-            VerificationThrottle verificationThrottle) {
+            VerificationThrottle verificationThrottle, TenantThrottle tenantThrottle) {
         this.sessions = sessions;
         this.accounts = accounts;
         this.throttle = throttle;
         this.verificationThrottle = verificationThrottle;
+        this.tenantThrottle = tenantThrottle;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (request.getServletPath().startsWith("/api/v1/auth/") || request.getServletPath().equals("/api/v1/me")) {
+        if (request.getServletPath().startsWith("/api/v1/auth/") || request.getServletPath().equals("/api/v1/me")
+            || request.getServletPath().startsWith("/api/v1/onboarding") || request.getServletPath().startsWith("/api/v1/organization")) {
             response.setHeader("Cache-Control", "no-store");
         }
         HttpServletRequest filtered = request;
@@ -55,6 +61,19 @@ public final class BearerSessionFilter extends OncePerRequestFilter {
                 boolean resend = request.getMethod().equals("POST")
                         && request.getServletPath().equals("/api/v1/auth/email-verification/resend");
                 authenticate(request);
+                if (OnboardingRoutes.matches(request)) {
+                    var authentication = SecurityContextHolder.getContext().getAuthentication();
+                    if (authentication == null) throw ApiException.unauthorized();
+                    var user = (UserView) authentication.getPrincipal();
+                    if (!user.emailVerified()) throw ApiException.emailVerificationRequired();
+                    if (OnboardingRoutes.mutation(request)) {
+                        tenantThrottle.check(user.id(), request.getRemoteAddr());
+                        byte[] body = request.getInputStream().readNBytes(4097);
+                        if (body.length > 4096) throw ApiException.validation();
+                        if (request.getServletPath().endsWith("/revoke") && body.length != 0) throw ApiException.validation();
+                        filtered = bodyRequest(request, body);
+                    }
+                }
                 if (confirm || resend) {
                     var authentication = SecurityContextHolder.getContext().getAuthentication();
                     if (authentication == null) throw ApiException.unauthorized();

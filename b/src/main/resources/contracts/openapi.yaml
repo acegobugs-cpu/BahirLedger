@@ -1,14 +1,28 @@
 openapi: 3.1.0
 info:
-  title: BahirLedger Managed Authentication
-  version: 0.3.0
+  title: BahirLedger Managed Authentication and Onboarding
+  version: 0.4.0
   description: >-
     BahirLedger-managed email/password sign-in is the default. Organization SSO is a
     future optional feature, not an available login mode. Registration, login and process
     liveness are public application operations. Listed browser CORS preflights are
     also permitted for the exact configured loopback origin. All other routes and
     methods are denied. Email verification requires an active account-only bearer session.
-    No membership, refresh or business API is exposed; verification grants no tenant access.
+    Durable onboarding requires an active verified bearer on every endpoint. OWNER
+    manages invitations only; MEMBER is membership only. Neither grants project,
+    policy, admin or financial permissions. No refresh or business API is exposed.
+    Onboarding mutation and preview JSON bodies are bounded to 4096 bytes, including
+    chunked requests, and have exact POST-only bearer CSRF exemptions. Exact CORS
+    routes include a canonical UUID-shaped invitation revoke path, never a subtree.
+    All sensitive responses and errors use Cache-Control no-store. Tenant mutation
+    and preview requests share bounded per-process fixed five-minute budgets:
+    20/account, 80/direct-source, 200/global, at most 10000 keys. Forwarded headers
+    are not trusted. Tenant budget failures use rate_limited; existing auth budgets
+    retain too_many_requests. No Retry-After guarantee or distributed throttle.
+    Durable organization/membership ACTIVE status is checked afresh; suspended or
+    revoked memberships are not removed and cannot silently switch organizations.
+    Database transactions lock account then organization then invitation. Mutation
+    audits commit atomically with attributable actor and subject IDs, without tokens.
     Use HTTPS outside loopback development. Clients must keep access tokens only
     in memory, including on web: never cookies, localStorage, URLs or logs.
 security:
@@ -337,7 +351,340 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding:
+    get:
+      operationId: getOnboarding
+      summary: Read durable onboarding context for the active verified account
+      description: >-
+        Both keys are always present. Without membership, only a nonexpired pending
+        bootstrap is returned. Expiry is strict at expiresAt. Expired setup is hidden,
+        not activated; no background worker is required. No organization is created
+        before activation. Suspended/revoked organization or membership returns
+        organization_unavailable. No change to /me or auth payloads.
+      responses:
+        '200':
+          $ref: '#/components/responses/OnboardingContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding/bootstrap:
+    post:
+      operationId: saveOrganizationBootstrap
+      summary: Start or edit one bounded pending organization setup
+      description: >-
+        Name is stripped before nonblank/max120 validation. Save/resume persists one
+        per-account row for 24 hours. Editing keeps the original ID and expiry and
+        grants no membership or owner rights. Restart/login recovers it via GET.
+        After cancellation or expiry a new save replaces the row with a new ID and
+        lifetime; the previous ID cannot activate or cancel it. Existing membership,
+        including inactive membership, returns membership_exists. Expiry is evaluated
+        by the server clock; replacing an expired pending record audits its expiry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 120}
+      responses:
+        '200':
+          $ref: '#/components/responses/OnboardingContext'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding/bootstrap/activate:
+    post:
+      operationId: activateOrganizationBootstrap
+      summary: Atomically create organization, OWNER membership and audit
+      description: >-
+        Requires the current nonexpired pending bootstrap ID. Account row locking
+        and membership primary key enforce one membership per account. No partial
+        organization may survive failure, including audit failure. A successful
+        bootstrap ID remains committed: retrying that same activated ID returns
+        current active membership even after the former pending expiry. Any stale,
+        cancelled, unknown or expired unactivated ID returns bootstrap_unavailable.
+      requestBody:
+        $ref: '#/components/requestBodies/BootstrapId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OnboardingContext'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding/bootstrap/cancel:
+    post:
+      operationId: cancelOrganizationBootstrap
+      summary: Cancel current nonexpired pending setup without creating a tenant
+      description: >-
+        A successful cancellation allows a fresh start with a new ID. Repeated,
+        expired, activated, missing or stale IDs return bootstrap_unavailable.
+      requestBody:
+        $ref: '#/components/requestBodies/BootstrapId'
+      responses:
+        '204':
+          $ref: '#/components/responses/TenantNoContent'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/organization/invitations:
+    get:
+      operationId: listOrganizationInvitations
+      summary: OWNER-only latest 100 invitations in the bearer-derived organization
+      description: >-
+        Active verified account, active membership and active organization required.
+        No client organization ID is accepted as an authorization scope. Ordered by
+        creation descending then UUID descending. PENDING records at or past expiry
+        project EXPIRED without a database mutation; ACCEPTED/REVOKED are terminal.
+        No token or digest is ever returned in the list.
+      responses:
+        '200':
+          description: At most 100 latest invitations
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invitations]
+                properties:
+                  invitations:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/Invitation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: issueOrganizationInvitation
+      summary: OWNER issues one-time owner-shared MEMBER code; no email or link
+      description: >-
+        Email is stripped and lowercased before validation (max254). No role choice.
+        Code is 32 random bytes encoded as 43 unpadded base64url characters, returned
+        only here; persist only SessionStore SHA-256 digest. Never log or stringify
+        code-bearing objects. Owner must securely share the code out of band; this
+        increment sends no email and supports no invitation URLs. Strict seven-day
+        expiry. Durable limits of 100 open invitations per organization and 10 issued
+        per owner per rolling 24 hours serialize under account/organization locks.
+        Revocation does not replenish the issuance budget. Issuance retry creates
+        another invitation and consumes budget; a lost response code is not recoverable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+      responses:
+        '201':
+          description: Invitation and raw owner-shared code, returned once
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invitation, token]
+                properties:
+                  invitation:
+                    $ref: '#/components/schemas/Invitation'
+                  token: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/organization/invitations/{id}/revoke:
+    post:
+      operationId: revokeOrganizationInvitation
+      summary: OWNER revokes an invitation in the bearer-derived organization
+      description: >-
+        Empty body required. Canonical UUID-shaped path only. Unknown/cross-org ID
+        returns identical invitation_not_found, without disclosure. Already revoked
+        is an idempotent 204; accepted returns invitation_unavailable. Expired pending
+        invitations may be revoked. No role grants or destructive organization API.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '204':
+          $ref: '#/components/responses/TenantNoContent'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '404':
+          description: Unknown or cross-organization invitation
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: {code: invitation_not_found, message: 'Invitation was not found.'}
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding/invitations/preview:
+    post:
+      operationId: previewOrganizationInvitation
+      summary: Preview only for the exact normalized verified recipient email
+      description: >-
+        Active verified bearer required. Missing, malformed, unknown, expired,
+        revoked, replayed, wrong-recipient or inactive-organization code returns
+        identical invalid_invitation without tenant disclosure. Only after validating
+        the invitation, an existing membership returns membership_exists. No writes
+        or rights; preview does not reserve acceptance.
+      requestBody:
+        $ref: '#/components/requestBodies/InvitationToken'
+      responses:
+        '200':
+          description: Recipient-bound organization name and expiry only
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [organizationName, expiresAt]
+                properties:
+                  organizationName: {type: string, maxLength: 120}
+                  expiresAt: {type: string, format: date-time, description: UTC ISO-8601 ending in Z}
+        '400':
+          $ref: '#/components/responses/InvalidInvitation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/onboarding/invitations/accept:
+    post:
+      operationId: acceptOrganizationInvitation
+      summary: Atomically consume recipient-bound code and create MEMBER membership
+      description: >-
+        Same exact recipient binding and generic invalid_invitation rules as preview.
+        A valid invitation for an already-member account returns membership_exists;
+        never switch organizations. Acceptance atomically cancels any pending setup,
+        creates MEMBER membership, consumes the invitation and writes attributable
+        audits. Replay remains invalid_invitation even by the recipient. After a lost
+        success response recover membership via GET onboarding, not by replaying code.
+        No project or financial permissions are inferred from membership.
+      requestBody:
+        $ref: '#/components/requestBodies/InvitationToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/OnboardingContext'
+        '400':
+          $ref: '#/components/responses/InvalidInvitation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '409':
+          $ref: '#/components/responses/TenantConflict'
+        '429':
+          $ref: '#/components/responses/TenantThrottled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
+  requestBodies:
+    BootstrapId:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [bootstrapId]
+            properties:
+              bootstrapId: {type: string, format: uuid}
+    InvitationToken:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [token]
+            properties:
+              token: {type: string, writeOnly: true, pattern: '^[A-Za-z0-9_-]{43}$'}
   securitySchemes:
     bearerSession:
       type: http
@@ -353,6 +700,40 @@ components:
         type: string
         const: no-store
   schemas:
+    Onboarding:
+      type: object
+      additionalProperties: false
+      required: [membership, bootstrap]
+      properties:
+        membership:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [organizationId, organizationName, role]
+              properties:
+                organizationId: {type: string, format: uuid}
+                organizationName: {type: string, maxLength: 120}
+                role: {type: string, enum: [OWNER, MEMBER]}
+        bootstrap:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, name, expiresAt]
+              properties:
+                id: {type: string, format: uuid}
+                name: {type: string, maxLength: 120}
+                expiresAt: {type: string, format: date-time, description: UTC ISO-8601 ending in Z}
+    Invitation:
+      type: object
+      additionalProperties: false
+      required: [id, email, status, expiresAt]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email, maxLength: 254}
+        status: {type: string, enum: [PENDING, ACCEPTED, REVOKED, EXPIRED]}
+        expiresAt: {type: string, format: date-time, description: UTC ISO-8601 ending in Z}
     User:
       type: object
       additionalProperties: false
@@ -380,11 +761,84 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, invalid_verification_token, invalid_credentials, unauthorized, forbidden, conflict, too_many_requests, service_unavailable, internal_error]
+          enum: [invalid_request, invalid_verification_token, invalid_credentials, unauthorized, forbidden, conflict, too_many_requests, service_unavailable, internal_error, email_verification_required, organization_unavailable, membership_exists, bootstrap_unavailable, invitation_unavailable, invalid_invitation, invitation_not_found, rate_limited]
         message:
           type: string
           description: Fixed generic message; never request values, credentials or exception details.
   responses:
+    OnboardingContext:
+      description: Durable account onboarding context; null bootstrap when membership exists
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Onboarding'
+    TenantNoContent:
+      description: Successful mutation or documented idempotent no-op; empty response
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+    TenantForbidden:
+      description: Verification, active organization/membership, owner, route, method, CORS or CSRF requirement failed
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            verification:
+              value: {code: email_verification_required, message: 'Email verification is required.'}
+            organization:
+              value: {code: organization_unavailable, message: 'Organization is unavailable.'}
+            forbidden:
+              value: {code: forbidden, message: 'Request is not permitted.'}
+    TenantConflict:
+      description: Existing membership, unavailable bootstrap, or accepted invitation on revoke
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            membership:
+              value: {code: membership_exists, message: 'Account already has an organization membership.'}
+            bootstrap:
+              value: {code: bootstrap_unavailable, message: 'Organization setup is unavailable.'}
+            invitation:
+              value: {code: invitation_unavailable, message: 'Invitation is unavailable.'}
+    InvalidInvitation:
+      description: >-
+        Invalid/missing/expired/revoked/replayed/wrong-recipient code, or inactive target
+        organization. Malformed/missing JSON, oversized body or unsupported media type
+        uses invalid_request rather than invalid_invitation. No tenant disclosure.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invitation:
+              value: {code: invalid_invitation, message: 'Invitation is invalid or unavailable.'}
+            body:
+              value: {code: invalid_request, message: 'Request is invalid.'}
+    TenantThrottled:
+      description: Tenant per-process budget/capacity or durable organization/owner issuance budget reached
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: rate_limited, message: 'Too many requests. Try again later.'}
     InvalidRequest:
       description: Invalid/missing JSON or fields, excessive byte length, or unsupported media type
       headers:

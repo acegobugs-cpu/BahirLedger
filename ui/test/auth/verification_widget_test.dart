@@ -48,6 +48,9 @@ void main() {
         clock: () => now,
         client: MockClient((request) async {
           requests.add(request);
+          if (request.url.path.endsWith('/onboarding')) {
+            return jsonResponse({'membership': null, 'bootstrap': null});
+          }
           if (handler != null) return handler(request);
           if (request.url.path.endsWith('/login') ||
               request.url.path.endsWith('/register')) {
@@ -121,7 +124,7 @@ void main() {
         expect(find.byType(VerifyEmailPage), findsNothing);
         expect(find.text('No organization assigned'), findsOneWidget);
         expect(find.text('Unprotected sample'), findsNothing);
-        expect(requests.length, 3);
+        expect(requests.length, 4);
         await unmount(tester);
       },
     );
@@ -154,8 +157,10 @@ void main() {
       expect(requests.length, 2);
       await tap(tester, find.byKey(const Key('confirm-email')));
       expect(find.byType(AccountPage), findsOneWidget);
-      expect(requests.last.url.path, '/api/v1/auth/email-verification/confirm');
-      expect(jsonDecode(requests.last.body), {'token': verificationToken});
+      final confirm = requests.singleWhere(
+        (r) => r.url.path.endsWith('/confirm'),
+      );
+      expect(jsonDecode(confirm.body), {'token': verificationToken});
       await unmount(tester);
     },
   );

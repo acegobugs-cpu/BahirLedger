@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'auth_transport.dart';
+import 'onboarding.dart';
 
 enum SessionState { signedOut, signingIn, signedIn }
 
@@ -25,6 +26,27 @@ class SessionController extends ChangeNotifier {
   int _operation = 0;
   bool _verificationBusy = false;
   DateTime? _resendAfter;
+  OnboardingContext? _onboarding;
+  List<OrganizationInvitation> _invitations = const [];
+  bool _onboardingBusy = false;
+  String? _onboardingMessage;
+  String? _shareCode;
+  String? _acceptCode;
+  InvitationPreview? _preview;
+  DateTime? _codeExpiry;
+  Timer? _codeTimer;
+  int _privateRevision = 0;
+
+  OnboardingContext? get onboarding => _onboarding;
+  List<OrganizationInvitation> get invitations => _invitations;
+  bool get onboardingBusy => _onboardingBusy;
+  bool get accountBusy => _verificationBusy || _onboardingBusy;
+  String? get onboardingMessage => _onboardingMessage;
+  String? get shareCode => _shareCode;
+  InvitationPreview? get invitationPreview => _preview;
+  int get privateRevision => _privateRevision;
+  bool get isOrganizationOwner =>
+      _onboarding?.membership?.role == OrganizationRole.owner;
 
   SessionState get state => _state;
   AccountUser? get user => _user;
@@ -144,10 +166,11 @@ class SessionController extends ChangeNotifier {
     String? success,
   }) async {
     checkExpiry();
-    if (_disposed || _state != SessionState.signedIn || _verificationBusy) {
+    if (_disposed || _state != SessionState.signedIn || accountBusy) {
       return;
     }
     final operation = ++_operation;
+    _clearOnboarding();
     _verificationBusy = true;
     _message = null;
     notifyListeners();
@@ -187,8 +210,244 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  void _clearCodes() {
+    _privateRevision++;
+    _shareCode = null;
+    _acceptCode = null;
+    _preview = null;
+    _codeExpiry = null;
+    _codeTimer?.cancel();
+    _codeTimer = null;
+  }
+
+  void _clearOnboarding() {
+    _clearCodes();
+    _onboarding = null;
+    _invitations = const [];
+    _onboardingMessage = null;
+  }
+
+  void dismissInvitation() {
+    if (_disposed) return;
+    // Dismissal must invalidate a pending response as well as visible codes.
+    if (_onboardingBusy) {
+      _operation++;
+      _transport.cancelAccountRequests();
+      _onboardingBusy = false;
+      _clearOnboarding();
+    } else {
+      _clearCodes();
+    }
+    notifyListeners();
+  }
+
+  /// Called when leaving the account surface, without notifying during disposal.
+  void leaveOnboarding() {
+    if (_disposed) return;
+    if (_onboardingBusy) {
+      _operation++;
+      _transport.cancelAccountRequests();
+      _onboardingBusy = false;
+      _clearOnboarding();
+    } else {
+      _clearCodes();
+    }
+  }
+
+  void _expireCodesAt(DateTime expiry) {
+    _codeExpiry = expiry;
+    _codeTimer = Timer(expiry.difference(_clock()), () {
+      if (_disposed) return;
+      _clearCodes();
+      notifyListeners();
+    });
+  }
+
+  bool _onboardingCurrent(int operation) {
+    if (!_current(operation)) return false;
+    checkExpiry();
+    return _current(operation);
+  }
+
+  // One epoch and one serialization gate for BOTH verification and onboarding.
+  // Every awaited result is checked before publishing or issuing follow-up calls.
+  Future<void> _organization(
+    Future<void> Function(int operation) action,
+  ) async {
+    checkExpiry();
+    if (_disposed ||
+        _state != SessionState.signedIn ||
+        _user?.emailVerified != true ||
+        accountBusy) {
+      return;
+    }
+    final operation = ++_operation;
+    _clearCodes();
+    _onboardingMessage = null;
+    _onboardingBusy = true;
+    notifyListeners();
+    if (!_onboardingCurrent(operation)) return;
+    try {
+      await action(operation);
+      if (!_onboardingCurrent(operation)) return;
+    } on AuthFailure catch (failure) {
+      if (!_onboardingCurrent(operation)) return;
+      _clearOnboarding();
+      if (failure.endsSession) {
+        _transport.clearSession();
+        _clearLocal();
+        _message = failure.message;
+      } else {
+        _onboardingMessage = failure.message;
+      }
+    } catch (_) {
+      if (!_onboardingCurrent(operation)) return;
+      _clearOnboarding();
+      _onboardingMessage = AuthTransport.onboardingUnavailable;
+    } finally {
+      if (_current(operation)) {
+        _onboardingBusy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _publishContext(OnboardingContext value, int operation) async {
+    if (!_onboardingCurrent(operation)) return;
+    // No owner UI is published until its list request is also confirmed.
+    var invitations = const <OrganizationInvitation>[];
+    if (value.membership?.role == OrganizationRole.owner) {
+      invitations = await _transport.loadInvitations();
+      if (!_onboardingCurrent(operation)) return;
+    }
+    _onboarding = value;
+    _invitations = invitations;
+  }
+
+  Future<void> refreshOnboarding() => _organization((operation) async {
+    _onboarding = null;
+    _invitations = const [];
+    final value = await _transport.loadOnboarding();
+    if (!_onboardingCurrent(operation)) return;
+    await _publishContext(value, operation);
+  });
+
+  Future<void> saveOrganization(String name) {
+    if (_onboarding == null || _onboarding!.membership != null) {
+      return Future.value();
+    }
+    return _organization((operation) async {
+      final value = await _transport.saveBootstrap(name);
+      if (!_onboardingCurrent(operation)) return;
+      await _publishContext(value, operation);
+    });
+  }
+
+  Future<void> activateOrganization() {
+    final setup = _onboarding?.bootstrap;
+    if (setup == null) return Future.value();
+    return _organization((operation) async {
+      final value = await _transport.activateBootstrap(setup.id);
+      if (!_onboardingCurrent(operation)) return;
+      await _publishContext(value, operation);
+    });
+  }
+
+  Future<void> cancelOrganization() {
+    final setup = _onboarding?.bootstrap;
+    if (setup == null) return Future.value();
+    return _organization((operation) async {
+      await _transport.cancelBootstrap(setup.id);
+      if (!_onboardingCurrent(operation)) return;
+      final value = await _transport.loadOnboarding();
+      if (!_onboardingCurrent(operation)) return;
+      await _publishContext(value, operation);
+    });
+  }
+
+  Future<void> invite(String email) {
+    if (!isOrganizationOwner) return Future.value();
+    return _organization((operation) async {
+      final issued = await _transport.createInvitation(email);
+      if (!_onboardingCurrent(operation)) return;
+      if (!issued.invitation.expiresAt.isAfter(_clock()) ||
+          issued.invitation.email != email.trim().toLowerCase()) {
+        throw const AuthFailure(AuthTransport.onboardingUnavailable);
+      }
+      // Keep the new code private until refreshed context confirms ownership.
+      final value = await _transport.loadOnboarding();
+      if (!_onboardingCurrent(operation)) return;
+      final organizationId = _onboarding?.membership?.organizationId;
+      await _publishContext(value, operation);
+      if (!_onboardingCurrent(operation)) return;
+      if (!isOrganizationOwner ||
+          value.membership?.organizationId != organizationId ||
+          !issued.invitation.expiresAt.isAfter(_clock()) ||
+          !_invitations.any(
+            (item) =>
+                item.id == issued.invitation.id &&
+                item.email == issued.invitation.email &&
+                item.status == InvitationStatus.pending &&
+                item.expiresAt.isAfter(_clock()),
+          )) {
+        throw const AuthFailure(AuthTransport.onboardingUnavailable);
+      }
+      _shareCode = issued.code;
+      _expireCodesAt(issued.invitation.expiresAt);
+    });
+  }
+
+  Future<void> revokeInvitation(String id) {
+    if (!isOrganizationOwner ||
+        !_invitations.any(
+          (item) => item.id == id && item.status == InvitationStatus.pending,
+        )) {
+      return Future.value();
+    }
+    return _organization((operation) async {
+      await _transport.revokeInvitation(id);
+      if (!_onboardingCurrent(operation)) return;
+      final value = await _transport.loadOnboarding();
+      if (!_onboardingCurrent(operation)) return;
+      await _publishContext(value, operation);
+    });
+  }
+
+  Future<void> previewInvitation(String code) {
+    if (_onboarding == null || _onboarding!.membership != null) {
+      return Future.value();
+    }
+    return _organization((operation) async {
+      final preview = await _transport.previewInvitation(code);
+      if (!_onboardingCurrent(operation)) return;
+      if (!preview.expiresAt.isAfter(_clock())) {
+        throw const AuthFailure(AuthTransport.invitationUnavailable);
+      }
+      _preview = preview;
+      _acceptCode = code;
+      _expireCodesAt(preview.expiresAt);
+    });
+  }
+
+  Future<void> acceptInvitation() {
+    checkExpiry();
+    final code = _acceptCode;
+    if (code == null || _preview == null || _onboarding?.membership != null) {
+      return Future.value();
+    }
+    return _organization((operation) async {
+      final value = await _transport.acceptInvitation(code);
+      if (!_onboardingCurrent(operation)) return;
+      await _publishContext(value, operation);
+    });
+  }
+
   /// Called on resume too: backgrounded browser/native timers can be suspended.
   void checkExpiry() {
+    if (!_disposed && _codeExpiry != null && !_clock().isBefore(_codeExpiry!)) {
+      _clearCodes();
+      notifyListeners();
+    }
     if (_disposed || _expiresAt == null) return;
     if (!_clock().isBefore(_expiresAt!)) {
       _expire();
@@ -218,6 +477,8 @@ class SessionController extends ChangeNotifier {
   }
 
   void _clearLocal() {
+    _clearOnboarding();
+    _onboardingBusy = false;
     _verificationBusy = false;
     _resendAfter = null;
     _expiryTimer?.cancel();

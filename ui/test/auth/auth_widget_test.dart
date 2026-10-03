@@ -27,6 +27,12 @@ void main() {
   });
 
   Future<http.Response> success(http.Request request) async {
+    if (request.url.path.endsWith('/onboarding')) {
+      return http.Response(
+        jsonEncode({'membership': null, 'bootstrap': null}),
+        200,
+      );
+    }
     if (request.url.path.endsWith('/login') ||
         request.url.path.endsWith('/register')) {
       return http.Response(
@@ -136,14 +142,14 @@ void main() {
       expect(find.text('person@example.com'), findsOneWidget);
       expect(find.text('No organization assigned'), findsOneWidget);
       expect(find.byType(Shell), findsNothing);
-      expect(calls, 2);
+      expect(calls, 3);
       await tester.ensureVisible(find.text('Sign out'));
       await tester.tap(find.text('Sign out'));
       await tester.pumpAndSettle();
       expect(find.text('Your account'), findsNothing);
       expect(find.text('You have signed out.'), findsOneWidget);
       expect(find.byKey(const Key('password')), findsOneWidget);
-      expect(calls, 3);
+      expect(calls, 4);
     },
   );
 
@@ -217,7 +223,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Your account'), findsOneWidget);
       expect(find.text('Local User'), findsOneWidget);
-      expect(calls, 3);
+      expect(calls, 4);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

@@ -19,7 +19,11 @@ class OpenApiContractTest {
             assertThat(document).containsEntry("openapi", "3.1.0");
             var paths = (Map<?, ?>) document.get("paths");
             assertThat(paths.keySet()).isEqualTo(Set.of("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/me", "/api/v1/auth/logout",
-                    "/api/v1/auth/email-verification/confirm", "/api/v1/auth/email-verification/resend"));
+                    "/api/v1/auth/email-verification/confirm", "/api/v1/auth/email-verification/resend",
+                    "/api/v1/onboarding", "/api/v1/onboarding/bootstrap", "/api/v1/onboarding/bootstrap/activate",
+                    "/api/v1/onboarding/bootstrap/cancel", "/api/v1/onboarding/invitations/preview",
+                    "/api/v1/onboarding/invitations/accept", "/api/v1/organization/invitations",
+                    "/api/v1/organization/invitations/{id}/revoke"));
             var components = (Map<?, ?>) document.get("components");
             var schemas = (Map<?, ?>) components.get("schemas");
             var user = (Map<?, ?>) schemas.get("User");

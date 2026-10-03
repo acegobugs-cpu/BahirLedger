@@ -2,8 +2,10 @@
 
 Java 21 / Spring Boot 4.1.1 modular backend. **BahirLedger-managed email/password
 sign-in is the default; organization SSO is optional future work.** Backend email
-verification and the [Flutter verification UI](../ui/README.md) are implemented,
-including link capture, token entry and the pending-account gate. Live HTTP/file-delivery
+verification and [Flutter verification/onboarding](../ui/README.md) are implemented,
+including link capture, token entry, the pending-account gate and separate durable
+organization setup/owner-shared invitation codes. `/me` remains identity-only;
+membership grants no project/policy/financial access. Prior verification HTTP/file-delivery
 and browser-link/CORS checks passed; the full interactive browser login → verification
 → account journey remains unvalidated. See [validation limits](#verification-validation--2026-10-03).
 
@@ -23,9 +25,9 @@ is the credential-free template, not a file Spring loads automatically.
 	SMTP sender, username and password blank. It selects Gmail SMTP on port **587**
 	with required STARTTLS, both frontend origins at `http://localhost:8765`, and
 	explicit `bahirledger.mail.allow-loopback-http=true` for development.
-3. In the existing private file the sender is already filled; the SMTP password
-	is still blank. Enter your Google app password into
-	`bahirledger.mail.smtp.password` **in the editor, never in chat**. For a fresh
+3. If `bahirledger.mail.smtp.password` is blank, enter your Google app password
+	**in the editor, never in chat**. Private values were not read for this update;
+	do not infer their current contents from earlier setup notes. For a fresh
 	copy, also fill database credentials and matching Gmail sender/login. Blank
 	required credentials are not a usable startup configuration.
 4. With a full JDK 21 selected and PostgreSQL available at the configured address,
@@ -61,8 +63,9 @@ The [OpenAPI contract](src/main/resources/contracts/openapi.yaml) is committed, 
 | `GET /api/v1/health` | `200 {"status":"UP"}`, process liveness only | Not database readiness |
 
 - Only registration, login and GET health are public application operations. Explicit CORS
-	preflights for these listed operations are also allowed. **Everything else is
-	denied**, including the unimplemented `/auth/signup` alias, refresh, membership, business APIs, form login,
+	preflights for these and the exact onboarding operations below are also allowed.
+	**Everything else is denied**, including the unimplemented `/auth/signup` alias,
+	refresh, general member administration, project/financial APIs, form login,
 	HTTP Basic, actuator and contract-file serving.
 - Unknown email, wrong password and inactive account return exactly
 	`{"code":"invalid_credentials","message":"Email or password is incorrect."}`.
@@ -107,9 +110,108 @@ The [OpenAPI contract](src/main/resources/contracts/openapi.yaml) is committed, 
 - Resend has a **persistent 60-second account cooldown**, including delivery failures.
 	A failed send clears the newly rotated token; the previous token is no longer valid.
 	Verified-account resend is `204` without delivery (source limits still apply).
-- Verification does not renew sessions or grant tenant access. All tenant routes
-	remain denied equally for pending and verified users. Future tenant endpoints
-	must check **verified email AND tenant membership**; no organization API is added.
+- Verification does not renew sessions or grant tenant access. Unverified accounts
+	cannot call onboarding; verified accounts use the separate surface below. Business
+	endpoints remain denied and will require verified email, active membership and
+	effective scoped permissions, not verification alone.
+
+## Durable onboarding — implemented 2026-10-03
+
+The [service](src/main/java/com/bahirledger/backend/onboarding/OnboardingService.java),
+[controller](src/main/java/com/bahirledger/backend/onboarding/OnboardingController.java)
+and [OpenAPI 0.4.0](src/main/resources/contracts/openapi.yaml) define a separate
+active-verified-bearer surface. Existing `/me`, registration/login payloads and bearer
+expiry are unchanged. `Context` is `{membership,bootstrap}` with both keys present
+and nullable; membership is `{organizationId,organizationName,role}`, bootstrap is
+`{id,name,expiresAt}`. Neither role supplies project, policy or financial grants.
+
+| Operation | Input / result |
+| --- | --- |
+| `GET /api/v1/onboarding` | `200 Context`; recover pending setup or active membership |
+| `POST /api/v1/onboarding/bootstrap` | `{name}` → `200 Context`; stripped nonblank single-line max120 name; backend rejects embedded ASCII controls |
+| `POST /api/v1/onboarding/bootstrap/activate` | `{bootstrapId}` → `200 Context` |
+| `POST /api/v1/onboarding/bootstrap/cancel` | `{bootstrapId}` → `204` |
+| `GET /api/v1/organization/invitations` | OWNER-only `200 {invitations:[{id,email,status,expiresAt}]}`; latest100 |
+| `POST /api/v1/organization/invitations` | OWNER-only `{email}` → `201 {invitation,token}`; normalized max254 email |
+| `POST /api/v1/organization/invitations/{id}/revoke` | OWNER-only, canonical UUID-shaped path, empty body → `204` |
+| `POST /api/v1/onboarding/invitations/preview` | `{token}` → `200 {organizationName,expiresAt}`; no writes or reservation |
+| `POST /api/v1/onboarding/invitations/accept` | `{token}` → `200 Context`; MEMBER membership |
+
+- Pending bootstrap is an **account-scoped restricted workflow, not a separate
+	bearer/session or grant**. One durable setup has fixed **24-hour** expiry; edits
+	preserve ID/expiry. GET resumes after login/restart and hides expired setup lazily.
+	Cancel/expiry permits a new ID/lifetime. There is no organization before activation.
+	Activation atomically creates active organization, initial `OWNER` and audits;
+	retrying a committed activation ID returns current active membership. Unactivated
+	stale/cancelled/expired IDs fail with `409 bootstrap_unavailable`.
+- One membership per account includes suspended/revoked rows, preventing silent
+	switching/re-enrollment. Every operation checks active verified account; membership
+	and organization status are checked afresh before their authority is used.
+	`OWNER` can only administer invitations; `MEMBER` conveys membership only. These
+	are implemented-slice roles, not universal role policy. No destructive member/owner
+	administration, organization deletion, owner transfer or custom policy is added.
+- Invitations are **owner-shared private codes: no invitation email or link**.
+	Strict **seven-day** lifetime; 32 random bytes/43 base64url characters, only
+	SHA-256 digest persisted. Raw code is returned once on issuance, never in lists,
+	logs or audits. Exact normalized verified recipient email **plus the secret** is
+	required for preview/accept. Preview grants nothing; acceptance atomically cancels
+	pending setup, creates `MEMBER`, consumes the invitation and appends audits.
+- Wrong-recipient/expired/revoked/replayed/invalid codes share `400 invalid_invitation`
+	without tenant disclosure. Existing membership returns `409 membership_exists`
+	after a valid recipient-bound invitation check. Lost acceptance success is recovered
+	through GET, not replay. Issuance retry creates another code and consumes budget;
+	a lost code cannot be recovered. Already-revoked revoke is `204`, accepted revoke
+	is `409 invitation_unavailable`, unknown/cross-org revoke is `404 invitation_not_found`.
+- All mutations and attributable actor/subject audit records share a transaction;
+	audit failure rolls back effects. Locks follow account → organization → invitation.
+	Expiry is projected on reads; replacing expired pending setup audits expiry.
+	Terminal invitations/audits have no retention worker. This is not comprehensive
+	monitoring or tamper-proof storage.
+- Mutation/preview budgets are **20/account, 80/direct source, 200/global per five
+	minutes**, bounded to **10,000 per-process keys**. No forwarded-source trust,
+	distributed throttle or `Retry-After` guarantee. Durable issuance caps are **100
+	nonexpired open/org, 10 issued/owner per rolling 24 hours**; revocation does not
+	replenish issuance budget. Lists are latest **100**, creation then UUID descending.
+	Tenant throttling returns `429 rate_limited`; auth retains `too_many_requests`.
+- JSON mutation/preview bodies are bounded to **4096 bytes**, including chunked
+	requests. Exact POST-only CSRF exceptions and exact CORS routes include the
+	canonical UUID revoke path, never a subtree. Sensitive responses/errors are
+	no-store. Unverified bearer access is `403 email_verification_required`; inactive
+	org/membership is `403 organization_unavailable`; bearer failure is `401`.
+
+### Onboarding validation — 2026-10-03
+
+Parent-verified final full-JDK-21 Maven `test`: **137 tests passed** (113 existing
++24 onboarding), **zero failures/errors/skips**, after the small backend service
+organization-name validation fix rejecting embedded ASCII controls for single-line
+names. The regular suite remains H2. Coverage includes additive V3 upgrade/preservation,
+file-database shutdown/reopen, strict expiry, recipient/role/status denial, concurrent
+setup/activation/accept/revoke, early/late audit rollback, HTTP body/CORS/CSRF/no-store/
+throttles and contract references.
+
+The parent also independently ran the **same 15 `OnboardingStateTest` tests on
+disposable real PostgreSQL 16: all passed**. Each test used an isolated schema in
+`bahirledger_onboarding_test` on loopback port **55439**, exercising **clean V1–V3
+migration**, concurrency, audit rollback, expiry and digest/recipient binding.
+This is state/service/database evidence, **not an existing-database PostgreSQL upgrade
+test or PostgreSQL-backed HTTP/browser/SMTP test**. H2 additive upgrade and reopen
+evidence must not be relabeled as PostgreSQL upgrade/restart evidence.
+
+The test-only opt-in is
+`-Dbahirledger.test.postgres.url=jdbc:postgresql://127.0.0.1:55439/bahirledger_onboarding_test`
+for `OnboardingStateTest`; it requires a **disposable loopback database**, username
+`onboarding_test` and empty password. It never reads private runtime properties;
+without the opt-in the regular suite remains H2. See [build and test isolation](#build-and-tests).
+The disposable instance has been **stopped**; the user's database, private
+configuration and services were untouched. No application-server restart is claimed.
+
+**326 Flutter tests passed, clean analyzer and release web build including Wasm dry
+run** remain implementation-agent results, **not parent reruns**. Flutter coverage
+includes typed onboarding models/transport, account workflow widgets and stale-operation
+races. This documentation pass reran no runtime checks. The shared browser tab is
+the **stale old implementation**, not a new live UI validation. Full interactive
+browser verification/onboarding, SMTP/inbox, native devices and production hardening
+remain gates. Historical verification evidence below is not live onboarding evidence.
 
 ### Frontend integration requirements
 
@@ -222,14 +324,27 @@ Use a **full JDK 21**, not a JRE (the shell default may be Java 17).
 From the backend directory, run `./mvnw verify` with that JDK selected.
 
 Use `mvnw.cmd verify` on Windows. The Maven wrapper downloads dependencies; global
-Maven is not required. Tests supply a **test-only H2 in-memory DataSource** and a
-controllable clock, with no database server or real credentials. There is no
-runtime `test` profile that enables an embedded database. Dedicated test-only
-configuration keeps tests independent of private database/SMTP values; tests do
-not require a Gmail app password or contact the real database/mail service. The
-parent change owns that test configuration; this documentation pass does not add
-or rerun tests. The production DataSource requires PostgreSQL configuration and
-never falls back to H2. Existing private database values are preserved.
+Maven is not required. The **regular suite uses test-only H2 databases** (in-memory
+and temporary file-backed upgrade/reopen fixtures) and a controllable clock; it
+requires no database server or real credentials. The final parent full-JDK-21
+Maven `test` run passed **137 tests, zero failures/errors/skips** after the backend
+name-validation fix; this is a `test` result, not a new `verify`/packaging claim.
+
+Only the test-only `OnboardingStateTest` opt-in
+`-Dbahirledger.test.postgres.url=jdbc:postgresql://127.0.0.1:55439/bahirledger_onboarding_test`
+selects a **disposable loopback PostgreSQL database**, with username
+`onboarding_test`, empty password and isolated per-test schemas. The parent ran all
+15 tests independently on real PostgreSQL 16 and stopped that disposable instance.
+Do not point this fixture at a user/deployment database or start the application
+against it. The opt-in never reads private runtime properties. Dedicated test-only
+configuration keeps both modes independent of private database/SMTP values: neither
+requires a Gmail app password or contacts the user's database/mail service.
+
+There is no runtime `test` profile that enables an embedded database. The parent
+change owns the test configuration; this documentation pass does not add or rerun
+tests. The production DataSource requires PostgreSQL configuration and never falls
+back to H2. Existing private database values are preserved. See [recorded evidence
+and limits](#onboarding-validation--2026-10-03).
 
 Boot manages Spring JDBC, Flyway 12.4.0, PostgreSQL JDBC 42.7.13 and H2 2.4.240.
 Flyway's H2 adapter currently emits a warning that its latest verified H2 version
@@ -238,6 +353,7 @@ these tests. No dependency is downgraded just to hide the warning.
 
 ### Verification validation — 2026-10-03
 
+**Historical pre-onboarding verification snapshot, preserved; not current suite totals.**
 Implementation-agent results: **112 backend tests pass**; **198 Flutter tests pass**,
 zero analyzer issues and release web build passes. These were not rerun by the parent
 or this documentation pass; generated source is unchanged. The parent live checks used
@@ -301,23 +417,30 @@ JAR with embedded credentials. Use a private database with TLS, suitable permiss
 and backups.
 Keep credentials out of the JDBC URL, command arguments and logs. Flyway applies
 [V1 account migration](src/main/resources/db/migration/V1__accounts.sql) and
-[additive V2 verification migration](src/main/resources/db/migration/V2__email_verification.sql)
+[additive V2 verification migration](src/main/resources/db/migration/V2__email_verification.sql) and
+[additive V3 onboarding migration](src/main/resources/db/migration/V3__onboarding.sql)
 at startup, validates checksums, and disables clean. Its schema contains stable
 UUID IDs, a unique normalized email, display name, BCrypt hash, active flag and
 default-false verification flag, plus the rotating verification digest/cooldown table.
+V3 adds organizations, one-per-account memberships and bootstraps, digest-only
+invitations and attributable onboarding audits; it does not modify V1/V2.
 There is no destructive schema recreation or startup password overwrite. The
 database identity currently needs migration privileges; separating migration and
 runtime identities is a deployment-hardening follow-up.
 
 Run with the completed private properties via `./mvnw spring-boot:run`. An executable
 JAR produced by `verify` also contains resource configuration and must remain private
-if it includes credentials. Public managed registration is implemented, but production
-invitations and tenant membership are not. PostgreSQL is the implemented target, but
-this test suite does not certify a live PostgreSQL deployment. V1-to-V2 preservation,
-token storage and concurrent transactions are tested with H2 only. Live HTTP/file-delivery
-and browser-link/CORS checks are recorded [above](#verification-validation--2026-10-03),
-not live SMTP, PostgreSQL or full interactive browser UI validation. No migrations
-were run against an existing user server/database during these checks.
+if it includes credentials. Managed registration and bounded durable onboarding are
+implemented, not production-certified. PostgreSQL is the implemented target;
+**all 15 onboarding state tests passed independently on disposable PostgreSQL 16**,
+including clean V1–V3 migration, concurrency, audit rollback, expiry and digest/recipient
+binding in isolated per-test schemas. The instance is stopped. This does **not**
+validate PostgreSQL existing-database upgrades, PostgreSQL-backed HTTP/browser/SMTP,
+application-server restart or deployment. Additive upgrade/reopen evidence is H2.
+Earlier verification HTTP/file-delivery and browser-link/CORS checks are recorded
+[above](#verification-validation--2026-10-03), not new live onboarding/UI evidence.
+No migrations were run against an existing user server/database during these checks;
+private configuration and user services were untouched. See [current validation](#onboarding-validation--2026-10-03).
 
 ## Security boundary and limits
 
@@ -350,8 +473,9 @@ were run against an existing user server/database during these checks.
 	The private template explicitly configures localhost port 8765 independently of
 	the local database profile. Non-loopback browser
 	origins require a subsequent reviewed deployment policy, not a wildcard workaround.
-- CSRF ignores only exact **POST** login, register, logout, email-verification/confirm
-	and email-verification/resend, since credentials/tokens are explicit
+- CSRF ignores only exact **POST** login, register, logout, email-verification/confirm,
+	email-verification/resend and the implemented onboarding/invitation operations above,
+	including UUID-shaped revoke, since credentials/tokens are explicit
 	and no ambient cookie authentication exists. Every other unsafe route retains
 	CSRF enforcement and is denied. Its nonpersisting CSRF repository deliberately
 	cannot create sessions or issue usable CSRF tokens for nonexistent write APIs.
@@ -362,10 +486,11 @@ were run against an existing user server/database during these checks.
 
 ## Not production-ready
 
-Still missing: invitations, password recovery/change,
+Still missing: password recovery/change,
 MFA, optional organization SSO and account linking/recovery, distributed durable
 session/revocation and throttle storage, comprehensive audit/abuse monitoring,
-deployment-scale rate policy, tenant isolation and membership/business endpoints.
+deployment-scale rate policy, full tenant/project isolation, destructive member/owner
+administration, custom policy and project/financial endpoints.
 Single-process throttling may be used for denial of service, and restarting the
 process resets it. Do not deploy multiple independent replicas and assume sessions
 or limits are shared. HTTPS is mandatory outside loopback development.

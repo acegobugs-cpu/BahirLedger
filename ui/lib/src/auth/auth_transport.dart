@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
+import 'onboarding.dart';
 import 'platform_client.dart';
 
 class AccountUser {
@@ -75,6 +76,7 @@ class AuthTransport {
   final _pending = <Completer<void>>{};
   String? _token;
   String? _accountId;
+  bool _emailVerified = false;
   int _generation = 0;
   bool _disposed = false;
 
@@ -193,6 +195,7 @@ class AuthTransport {
       if (user.id != signUpUser.id) throw const FormatException();
       if (!expiresAt.isAfter(_clock())) throw const AuthFailure(expired);
       _accountId = user.id;
+      _emailVerified = user.emailVerified;
       return AuthenticatedAccount(user, expiresAt);
     } on AuthFailure {
       if (generation == _generation) clearSession();
@@ -246,6 +249,7 @@ class AuthTransport {
       if (user.id != loginUser.id) throw const FormatException();
       if (!expiresAt.isAfter(_clock())) throw const AuthFailure(expired);
       _accountId = user.id;
+      _emailVerified = user.emailVerified;
       return AuthenticatedAccount(user, expiresAt);
     } on AuthFailure {
       if (generation == _generation) clearSession();
@@ -298,6 +302,7 @@ class AuthTransport {
       if (user.id != _accountId || (confirmed && !user.emailVerified)) {
         throw const FormatException();
       }
+      _emailVerified = user.emailVerified;
       return user;
     } catch (_) {
       clearSession();
@@ -339,6 +344,165 @@ class AuthTransport {
     );
   }
 
+  static const onboardingUnavailable =
+      'Organization status could not be confirmed. Refresh status before trying again; the previous action may have completed.';
+  static const invitationUnavailable =
+      'This invitation is unavailable. Check the signed-in email and ask the owner for a new code. It may be expired, used, or revoked.';
+
+  // Uses the same cookie-free request helper and credential generation as auth.
+  // Check the generation before status handling AND before parsing any data.
+  Future<T> _organizationRequest<T>(
+    String method,
+    String path,
+    T Function(Object?) parse, {
+    Map<String, String>? body,
+    int expected = 200,
+  }) async {
+    final generation = _generation;
+    if (_disposed || _token == null || _accountId == null) {
+      throw const AuthFailure(expired, endsSession: true);
+    }
+    if (!_emailVerified) {
+      throw const AuthFailure(
+        'Verify your email before organization onboarding.',
+      );
+    }
+    final response = await _request(method, path, token: _token, body: body);
+    _checkCurrent(generation);
+    if (response.statusCode == 401) {
+      clearSession();
+      throw const AuthFailure(expired, endsSession: true);
+    }
+    if (response.statusCode != expected) {
+      throw AuthFailure(switch (response.statusCode) {
+        400 =>
+          path.startsWith('/onboarding/invitations/')
+              ? invitationUnavailable
+              : 'The organization request was invalid. Check the name or recipient email, then refresh status.',
+        403 =>
+          'Organization access was denied. Refresh status or check email verification; no organization access is confirmed.',
+        404 => 'The invitation was not found. Refresh status.',
+        409 =>
+          'Organization or invitation status changed. Refresh status; membership may already exist or the setup or invitation may be unavailable.',
+        429 =>
+          'Too many organization requests. Please wait, then refresh status.',
+        _ => onboardingUnavailable,
+      });
+    }
+    try {
+      _checkCurrent(generation);
+      final result = parse(
+        expected == 204 ? null : jsonDecode(utf8.decode(response.bodyBytes)),
+      );
+      _checkCurrent(generation);
+      return result;
+    } on AuthFailure {
+      rethrow;
+    } catch (_) {
+      throw const AuthFailure(onboardingUnavailable);
+    }
+  }
+
+  Future<OnboardingContext> loadOnboarding() =>
+      _organizationRequest('GET', '/onboarding', OnboardingContext.fromJson);
+
+  Future<OnboardingContext> saveBootstrap(String name) {
+    final trimmed = name.trim();
+    try {
+      onboardingText(trimmed);
+    } catch (_) {
+      throw const AuthFailure(
+        'Enter an organization name of 1–120 characters.',
+      );
+    }
+    return _organizationRequest(
+      'POST',
+      '/onboarding/bootstrap',
+      OnboardingContext.fromJson,
+      body: {'name': trimmed},
+    );
+  }
+
+  Future<OnboardingContext> activateBootstrap(String id) {
+    onboardingId(id);
+    return _organizationRequest(
+      'POST',
+      '/onboarding/bootstrap/activate',
+      OnboardingContext.fromJson,
+      body: {'bootstrapId': id},
+    );
+  }
+
+  Future<void> cancelBootstrap(String id) {
+    onboardingId(id);
+    return _organizationRequest(
+      'POST',
+      '/onboarding/bootstrap/cancel',
+      (_) {},
+      body: {'bootstrapId': id},
+      expected: 204,
+    );
+  }
+
+  Future<List<OrganizationInvitation>> loadInvitations() =>
+      _organizationRequest(
+        'GET',
+        '/organization/invitations',
+        OrganizationInvitation.listFromJson,
+      );
+
+  Future<IssuedInvitation> createInvitation(String email) {
+    final normalized = email.trim().toLowerCase();
+    try {
+      invitationEmail(normalized);
+    } catch (_) {
+      throw const AuthFailure(
+        'Enter a valid invitation email (maximum 254 characters).',
+      );
+    }
+    return _organizationRequest(
+      'POST',
+      '/organization/invitations',
+      IssuedInvitation.fromJson,
+      body: {'email': normalized},
+      expected: 201,
+    );
+  }
+
+  Future<void> revokeInvitation(String id) {
+    onboardingId(id);
+    return _organizationRequest(
+      'POST',
+      '/organization/invitations/$id/revoke',
+      (_) {},
+      expected: 204,
+    );
+  }
+
+  Future<InvitationPreview> previewInvitation(String token) {
+    if (!validInvitationCode(token)) {
+      throw const AuthFailure(invitationUnavailable);
+    }
+    return _organizationRequest(
+      'POST',
+      '/onboarding/invitations/preview',
+      InvitationPreview.fromJson,
+      body: {'token': token},
+    );
+  }
+
+  Future<OnboardingContext> acceptInvitation(String token) {
+    if (!validInvitationCode(token)) {
+      throw const AuthFailure(invitationUnavailable);
+    }
+    return _organizationRequest(
+      'POST',
+      '/onboarding/invitations/accept',
+      OnboardingContext.fromJson,
+      body: {'token': token},
+    );
+  }
+
   /// Clear local credentials before attempting remote revocation.
   /// A login in flight may create a server session whose token is never received.
   Future<bool> logout() async {
@@ -354,14 +518,20 @@ class AuthTransport {
     }
   }
 
-  void clearSession() {
+  /// Cancel account-page work without ending or extending the bearer session.
+  void cancelAccountRequests() {
     _generation++;
-    _token = null;
-    _accountId = null;
     for (final abort in _pending) {
       if (!abort.isCompleted) abort.complete();
     }
     _pending.clear();
+  }
+
+  void clearSession() {
+    cancelAccountRequests();
+    _token = null;
+    _accountId = null;
+    _emailVerified = false;
   }
 
   void dispose() {

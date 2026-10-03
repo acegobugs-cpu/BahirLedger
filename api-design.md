@@ -1,6 +1,6 @@
 # API design and protocol decisions
 
-Updated: 2026-10-03. The [backend OpenAPI contract](b/src/main/resources/contracts/openapi.yaml) defines the current public surface. The managed-auth section below describes implemented operations; other resource/sync/evidence examples are future designs and need contract review before implementation.
+Updated: 2026-10-03. The [backend OpenAPI contract](b/src/main/resources/contracts/openapi.yaml) defines the current public surface (0.4.0). The managed-auth and durable-onboarding sections below describe implemented operations; other resource/sync/evidence examples are future designs and need contract review before implementation.
 
 ## Implemented managed account authentication
 
@@ -28,9 +28,37 @@ Mail uses configured frontend origin plus `/#/verify-email?token=TOKEN`, never r
 
 Login validation returns `400`; wrong email/password or inactive account returns the same generic `401` credentials error; bounded per-process throttling/concurrency/session capacity returns `429`. Authentication failures, forbidden operations, database failures and unexpected controller failures have sanitized `{code,message}` responses (`401`, `403`, `503`, `500` respectively). Auth/identity responses, including errors, use `Cache-Control: no-store`. See [backend details](b/README.md) for body/credential bounds and limits.
 
-Only these exact methods/routes and allowed preflights are enabled. CORS permits one configured exact loopback HTTP(S) origin with port, never wildcard/credentialed access; the local default is `http://localhost:8765`, otherwise cross-origin access defaults off. CSRF exemptions apply only to POST register/login/logout/email-verification/confirm/email-verification/resend, not arbitrary writes. The verification frontend-link origin is separate configuration and does not expand CORS. Non-loopback browser deployment needs a reviewed CORS policy; the current configuration is not production web certification.
+Only the exact auth and onboarding methods/routes documented here and allowed preflights are enabled. CORS permits one configured exact loopback HTTP(S) origin with port, never wildcard/credentialed access; the local default is `http://localhost:8765`, otherwise cross-origin access defaults off. CSRF exemptions apply only to the exact implemented auth and onboarding POST operations, not arbitrary writes or route subtrees. The verification frontend-link origin is separate configuration and does not expand CORS. Non-loopback browser deployment needs a reviewed CORS policy; the current configuration is not production web certification.
 
-Account-only signup and verification are implemented alongside opt-in local provisioning. **No invitation, organization/member, password-recovery, MFA, SSO or business endpoints exist**; the `/auth/signup` alias is also denied. Future tenant endpoints must require verified email **and** membership. Optional SSO cannot email-auto-link identities. See [auth/access](auth-access.md).
+Account-only signup and verification are implemented alongside opt-in local provisioning and the separate onboarding surface below. **No password-recovery, MFA, SSO, general member administration, policy or project/financial endpoints exist**; the `/auth/signup` alias is also denied. Future business endpoints must require verified email, active membership and effective authorization. Optional SSO cannot email-auto-link identities. See [auth/access](auth-access.md).
+
+## Implemented durable onboarding — 2026-10-03
+
+All operations require an **active verified account bearer**; the existing bearer/deadline and `/me`/auth payloads are unchanged. `Context` below is `{membership,bootstrap}`, both keys always present and nullable. Membership is `{organizationId,organizationName,role}` (`OWNER` or `MEMBER`); pending bootstrap is `{id,name,expiresAt}`. Membership implies a null bootstrap, never project/policy/financial grants.
+
+| Operation | Input → success |
+| --- | --- |
+| `GET /api/v1/onboarding` | `200 Context`; resume durable setup or read active membership |
+| `POST /api/v1/onboarding/bootstrap` | `{name}` → `200 Context`; stripped nonblank single-line name, max 120 characters; backend rejects embedded ASCII controls |
+| `POST /api/v1/onboarding/bootstrap/activate` | `{bootstrapId}` → `200 Context`; atomic organization + `OWNER` + audits |
+| `POST /api/v1/onboarding/bootstrap/cancel` | `{bootstrapId}` → `204` |
+| `GET /api/v1/organization/invitations` | `200 {invitations:[{id,email,status,expiresAt}]}`; owner-only latest 100 |
+| `POST /api/v1/organization/invitations` | `{email}` → `201 {invitation:{id,email,status,expiresAt},token}`; owner-only, normalized email max 254, no role choice |
+| `POST /api/v1/organization/invitations/{id}/revoke` | Empty body → `204`; owner-only, canonical UUID-shaped path |
+| `POST /api/v1/onboarding/invitations/preview` | `{token}` → `200 {organizationName,expiresAt}`; no writes, reservation or grants |
+| `POST /api/v1/onboarding/invitations/accept` | `{token}` → `200 Context`; atomic `MEMBER` + consumption + pending cancellation + audits |
+
+Pending bootstrap is account-scoped restricted state, not a separate bearer grant: fixed **24-hour** expiry; editing retains ID/deadline; no organization exists before activation. Cancel/expiry permits a new ID/lifetime. Expired setup is hidden lazily. Successful activation ID retries return current active membership even after the old pending deadline; stale/cancelled/expired unactivated IDs fail. One org/account includes suspended/revoked membership, preventing silent switching. Durable active account/membership/organization checks and account → organization → invitation locks precede authority-dependent changes; audit failure rolls back every mutation.
+
+Invitations are **owner-shared codes, no invitation email or URL**: 32 random bytes / 43 base64url characters, SHA-256-digest-only storage, one-time raw return, strict **seven-day** expiry. Exact normalized verified recipient email **and** secret are required. `PENDING`, `ACCEPTED`, `REVOKED`, projected `EXPIRED` statuses are returned without tokens/digests in lists. Invalid/expired/revoked/replayed/wrong-recipient/inactive-target codes share `400 invalid_invitation`; malformed/missing JSON, unsupported media type and oversized bodies use `400 invalid_request`. Preview reserves nothing. Acceptance replay fails; recover lost success through GET. Issue retry creates another invite and consumes budget; lost raw codes cannot be recovered. Already-revoked revoke is `204`; accepted revoke is `409 invitation_unavailable`; unknown/cross-org revoke is the same `404 invitation_not_found`.
+
+Bearer failure is `401`; unverified access is `403 email_verification_required`; inactive org/membership is `403 organization_unavailable`; non-owner admin is forbidden. Existing membership is `409 membership_exists`; unavailable bootstrap is `409 bootstrap_unavailable`. Tenant budget/capacity failures use **`429 rate_limited`**, not auth's unchanged `too_many_requests`. Error bodies remain generic `{code,message}`; sensitive successes/errors are `Cache-Control: no-store`.
+
+Mutation/preview JSON bodies are limited to **4096 bytes**, including chunked requests. Exact POST-only CSRF exemptions/CORS entries include the UUID-shaped revoke route, never a subtree. Shared fixed five-minute tenant budgets: **20/account, 80/direct source, 200/global, 10,000 keys maximum** per process; forwarded headers ignored, no distributed throttle or `Retry-After` guarantee. Durable caps: **100 nonexpired open/org**, **10 issued/owner per rolling 24 hours**, unaffected by revocation; lists return latest **100**, creation then UUID descending. `OWNER` invitation administration and `MEMBER` membership are slice decisions, not universal role policy. No destructive member/owner admin, custom policy or business API is added.
+
+Parent final full-JDK-21 Maven `test`: **137 passed, zero failures/errors/skips**, after the backend name-validation fix above. Independently, the same **15 `OnboardingStateTest` tests passed on disposable real PostgreSQL 16**, with isolated per-test schemas covering clean V1–V3 migration, concurrency, audit rollback, expiry and digest/recipient binding. H2 additive upgrade/reopen also passed. HTTP/security/contract coverage is from the regular H2 suite, **not PostgreSQL-backed HTTP tests**. See [test-only opt-in and evidence limits](b/README.md#onboarding-validation--2026-10-03).
+
+**326 Flutter tests, clean analyzer and release web build** remain implementation-agent results, not parent reruns. This docs-only pass reran no runtime checks. The disposable PostgreSQL instance is stopped; user database/private configuration/services were untouched. No PostgreSQL existing-database upgrade, PostgreSQL-backed browser/SMTP validation or server restart is claimed. The shared browser tab is the stale old implementation, not new live UI evidence. Live browser onboarding, full interactive verification, SMTP/inbox, native-device and production gates remain open.
 
 ## Protocol selection
 
