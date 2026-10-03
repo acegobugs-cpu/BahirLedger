@@ -1,15 +1,22 @@
 openapi: 3.1.0
 info:
-  title: BahirLedger Backend Foundation
-  version: 0.1.0
+  title: BahirLedger Managed Authentication
+  version: 0.2.0
   description: >-
-    Step 02a exposes only process liveness, not database or identity-provider readiness.
-    Other routes are denied. Authentication, business APIs and synchronization are not implemented.
+    BahirLedger-managed email/password sign-in is the default. Organization SSO is a
+    future optional feature, not an available login mode. Only login and process
+    liveness are public application operations. Listed browser CORS preflights are
+    also permitted for the exact configured loopback origin. All other routes and
+    methods are denied. No membership, signup, refresh or business API is exposed.
+    Use HTTPS outside loopback development. Clients must keep access tokens only
+    in memory, including on web: never cookies, localStorage, URLs or logs.
+security:
+  - bearerSession: []
 paths:
   /api/v1/health:
     get:
       operationId: getHealth
-      summary: Process liveness without tenant or infrastructure details
+      summary: Process liveness, not database or identity-provider readiness
       security: []
       responses:
         '200':
@@ -23,4 +30,245 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [UP]
+                    const: UP
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Authenticate with a BahirLedger-managed account
+      security: []
+      description: >-
+        Email is stripped of surrounding whitespace and lowercased with a
+        locale-independent rule before validation and lookup. Password is not
+        trimmed. Wrong password, unknown account and inactive account have the
+        identical 401 response. JSON body is limited to 4096 bytes including
+        chunked requests. Password verification uses BCrypt cost 12; a dummy
+        verification is performed for unknown accounts. No cookie is created.
+        Login is CSRF-exempt because no ambient cookie authentication exists.
+        Tokens expire absolutely 30 minutes after issuance, without refresh.
+        All sessions are lost on backend restart.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  minLength: 1
+                  maxLength: 254
+                  description: Constraints apply after normalization.
+                password:
+                  type: string
+                  format: password
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 72
+                  description: Nonblank; additionally at most 72 UTF-8 bytes (BCrypt limit).
+      responses:
+        '200':
+          description: Authenticated; the raw token is returned only in this response
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [accessToken, expiresAt, user]
+                properties:
+                  accessToken:
+                    type: string
+                    pattern: '^[A-Za-z0-9_-]{43}$'
+                    description: Opaque bearer token from 32 cryptographically random bytes; not a JWT.
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    description: Absolute UTC ISO-8601 timestamp ending in Z.
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          description: Wrong password, unknown account or inactive account
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: invalid_credentials
+                message: Email or password is incorrect.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/Throttled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/me:
+    get:
+      operationId: getCurrentUser
+      summary: Current active account identity, not membership information
+      responses:
+        '200':
+          description: Active account identified by the current bearer session
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke only the current bearer session
+      description: >-
+        No request body required. Other sessions remain valid. Missing, invalid,
+        expired, previously revoked tokens or inactive accounts return 401.
+        CSRF-exempt only for this exact POST route; no cookie authentication exists.
+      responses:
+        '204':
+          description: Current session revoked; empty response body
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerSession:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >-
+        One Authorization header with Bearer followed by the token. No cookies,
+        query-string tokens, HTTP Basic, form login or implicit development accounts.
+  headers:
+    NoStore:
+      description: Authentication and identity responses must never be cached.
+      schema:
+        type: string
+        const: no-store
+  schemas:
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable account ID persisted in the database.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Unique normalized email.
+        displayName:
+          type: string
+          maxLength: 120
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [invalid_request, invalid_credentials, unauthorized, forbidden, too_many_requests, service_unavailable, internal_error]
+        message:
+          type: string
+          description: Fixed generic message; never request values, credentials or exception details.
+  responses:
+    InvalidRequest:
+      description: Invalid/missing JSON or fields, excessive byte length, or unsupported media type
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: invalid_request, message: 'Request is invalid.'}
+    Unauthorized:
+      description: Missing, malformed, invalid, expired, revoked bearer token, or inactive account
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: unauthorized, message: 'Authentication is required.'}
+    Forbidden:
+      description: Route, method, CORS policy or CSRF check does not permit the request
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: forbidden, message: 'Request is not permitted.'}
+    Throttled:
+      description: >-
+        Bounded per-process fixed five-minute windows: 5 attempts per normalized
+        email, 20 per direct source IP, 100 globally, including successful logins.
+        Malformed requests count against source/global limits. Forwarded IP headers
+        are not trusted. Also returned if four concurrent password checks or the
+        10000-entry session/throttle capacity is saturated. No Retry-After guarantee.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: too_many_requests, message: 'Too many requests. Try again later.'}
+    Unavailable:
+      description: Account database temporarily unavailable; no exception details
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: service_unavailable, message: 'Service is temporarily unavailable.'}
+    InternalError:
+      description: Unexpected application error; no exception details
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: internal_error, message: 'Request could not be completed.'}

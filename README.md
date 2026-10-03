@@ -4,9 +4,10 @@ A Flutter application and Java backend for project management and accountability
 
 ## Current application
 
-- **Flutter prototype:** project list, create/edit forms, review screens, preparation checklist, and funding/budget/RACI/milestone/procurement editors. Data is currently page-local and in memory; some changes do not survive navigation or restart.
-- **Java backend foundation:** a public liveness endpoint, fail-closed HTTP security, an internal organization/project policy evaluator, and a static OpenAPI contract. It is not yet connected to Flutter.
-- **Planned, not operational:** PostgreSQL persistence, organization SSO and membership, full policy administration, offline synchronization, private evidence storage, and Python AI/analytics processing. This is not production-ready authentication or financial software.
+- **Managed sign-in:** Flutter calls Java's email/password login, identity and logout endpoints. The authenticated landing shows account identity only, not organization membership or an authorized project workspace. Tokens remain in client memory only and expire after at most 30 minutes.
+- **Separate local demo:** project list, create/edit forms, review screens, preparation checklist, and funding/budget/RACI/milestone/procurement editors remain sample-data prototypes. Some changes do not survive navigation or restart; exploring the demo grants no tenant access.
+- **Backend:** BCrypt password hashes, JDBC account storage with Flyway migrations, opaque bearer sessions held as digests in backend memory, fail-closed HTTP security, an internal policy evaluator and a static OpenAPI contract. The explicit local profile uses file-backed H2 outside the repository. PostgreSQL is the deployment target, not a live-tested deployment.
+- **Accepted direction, still planned:** BahirLedger-managed registration with verified email and controlled organization bootstrap is the default; organization SSO is optional. Current sign-in requires an explicitly provisioned local development account: no registration, invitation, email verification or production bootstrap flow exists. Tenant membership, full policy administration, offline synchronization, private evidence and Python AI/analytics remain future work. This is not production-ready authentication or financial software.
 
 ## Repository
 
@@ -24,13 +25,15 @@ Install Flutter with Dart compatible with `^3.11.5` and the build prerequisites 
 
 From the repository root, use `cd ui`, then `flutter pub get` and `flutter run -d <device-id>`. Discover available targets with `flutter devices`. Platform scaffolding does not mean every release target is certified.
 
-The client currently uses local sample data; a running backend or SSO account is not required to explore the prototype.
+Choose **Explore demo (local sample data)** to explore without a backend or account. For managed sign-in, run the backend separately and provision a local development account as described in [b/README.md](b/README.md). Set `API_BASE_URL` to the API origin; its default is `http://localhost:8080`. HTTP is allowed only for exact loopback hosts in debug builds; profile/release requires HTTPS. For web development use a fixed frontend port matching the backend's exact CORS origin (local default `http://localhost:8765`). See [ui/README.md](ui/README.md) for platform and transport limits.
 
 ### Backend
 
-Install a **full JDK 21** and select it with `JAVA_HOME`; a Java runtime alone is insufficient. From the repository root, use `cd b`, then `./mvnw verify` and `./mvnw spring-boot:run`. On Windows use `mvnw.cmd`.
+Install a **full JDK 21** and select it with `JAVA_HOME`; a Java runtime alone is insufficient. From the repository root, use `cd b`, then `./mvnw verify`. On Windows use `mvnw.cmd`. Tests supply their own database; application startup requires explicit database/profile configuration.
 
-Default local endpoint: `http://localhost:8080/api/v1/health`, returning `{"status":"UP"}`. This indicates process liveness, not database or SSO readiness. Other requests are denied in the foundation. First build downloads Maven/dependencies; no database or credentials are required yet.
+For local development only, enable `SPRING_PROFILES_ACTIVE=local` when running `./mvnw spring-boot:run`. Account creation is opt-in via all three variables `BAHIRLEDGER_DEV_EMAIL`, `BAHIRLEDGER_DEV_PASSWORD` and `BAHIRLEDGER_DEV_NAME`; there are no default application credentials. Follow the secure provisioning instructions in [b/README.md](b/README.md), not shell-history password literals. Existing accounts are never overwritten. H2 account data defaults to the user's external local-data directory and survives backend restart; sessions do not.
+
+Without the local profile, PostgreSQL URL, username and password configuration are required; there is no production signup/bootstrap endpoint. `GET /api/v1/health` returns `{"status":"UP"}` for liveness, not tenant or deployment readiness. Only health/login and authenticated identity/logout operations, plus permitted preflights, are enabled; everything else is denied.
 
 See [b/README.md](b/README.md) for configuration and debugging, and [the API contract](b/src/main/resources/contracts/openapi.yaml) for implemented operations.
 
@@ -49,7 +52,7 @@ Do not commit credentials, identity-provider secrets, signing keys, or productio
 | [product-vision.md](product-vision.md) | Product goals, domain examples, scope, principles, and engineering challenges |
 | [architecture.md](architecture.md) | System structure, ownership, storage, and integration boundaries |
 | [api-design.md](api-design.md) | REST/OpenAPI, synchronization, files, realtime, and deferred protocols |
-| [auth-access.md](auth-access.md) | Organizations, SSO, invitations, configurable permissions, and offline access |
+| [auth-access.md](auth-access.md) | Managed identity, optional SSO, invitations, configurable permissions, and offline access |
 | [ai-analytics.md](ai-analytics.md) | Python AI processing, Java authority, job contracts, and data safety |
 | [decisions.md](decisions.md) | Accepted decisions, rationale, and unresolved choices |
 

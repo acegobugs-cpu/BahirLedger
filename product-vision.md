@@ -656,7 +656,7 @@ Cannot approve own expense
 
 This is an optional separation-of-duties rule, not a universal requirement. Self-approval can be allowed or denied by explicit policy; it never replaces the need for scoped permission and an applicable approval rule. Review-before-preparation and required rejection/amendment reasons in the current UI are legacy prototype choices, not mandatory rules for every organization.
 
-An **organization is an independent workspace/tenant, not a legal entity**. Creation is self-service through controlled bootstrap; existing-organization membership is invite-only, with one organization per application account. Organization SSO is mandatory from the outset; initial device scope is personal devices only.
+An **organization is an independent workspace/tenant, not a legal entity**. Planned creation is self-service through controlled bootstrap; existing-organization membership is invite-only, with one organization per application account. BahirLedger-managed identity is the default and organization SSO is optional; initial device scope is personal devices only. Registration, verified-email onboarding, invitations and organization bootstrap are not yet implemented.
 
 ---
 
@@ -681,7 +681,9 @@ The system should consider:
 
 Sensitive operations should require appropriate authorization.
 
-Use an established identity provider (vendor unselected; MVP OIDC proposed). Pending SSO bootstrap has no tenant-data access: verify provider control and test sign-in before activation. Stable issuer+subject identifies a user; email/domain does not confer membership. Invitations must bind organization/recipient, expire and be consumed once. Trust reviewed provider registries, not arbitrary issuer URLs. Flutter uses external-browser authorization code + PKCE with no app secret. Concrete interoperability, delegated precedence, recovery/last-owner protection and offline defaults remain open decisions.
+Managed signup with verified email and controlled organization bootstrap is planned without requiring an organization IdP. Pending bootstrap has no tenant-data access. Invitations must bind organization/verified recipient, expire and be consumed once; email/domain possession alone does not grant membership. Optional SSO will require a reviewed provider registry, provider-control proof/test sign-in, issuer+subject identity and verified linking with no email auto-link. External-browser authorization code + PKCE with no client secret is proposed for that future flow, not today's implementation. Delegated precedence, recovery/last-owner protection and offline defaults remain open decisions.
+
+The current slice implements direct Java email/password sign-in for explicitly provisioned local development accounts, BCrypt hashes, durable JDBC/Flyway account storage and 30-minute opaque bearer sessions held only in client/backend memory (backend stores token digests). It has no signup/invitation/email-verification flow, cookie authentication or OIDC server. Flutter's authenticated landing shows identity only; the project demo is separate and does not establish membership or authorization. See [current scope](README.md) and [auth/access](auth-access.md); this is not production-ready security.
 
 ---
 
@@ -728,7 +730,7 @@ Work Completion
 
 The approved architecture is a **Java Spring Boot modular monolith with PostgreSQL**, serving Flutter through versioned REST/JSON APIs described by a committed OpenAPI contract. PostgreSQL is authoritative; a local client store and explicit push/pull synchronization support eventual reconciliation rather than offline server authority.
 
-Evidence will use S3-compatible private storage with tenant-scoped access. Python will own AI-provider integration, AI processing and derived analytics; Java retains authoritative business rules and transactions. Introduce the Python worker with the first concrete AI feature, not as a prerequisite for the core application. Python produces advisory findings, not approvals or transaction authority. OpenAI is a candidate, not a selected provider. Mandatory organization SSO will use an established provider; the vendor and concrete protocol interoperability remain to be settled (OIDC proposed for MVP).
+Evidence will use S3-compatible private storage with tenant-scoped access. Python will own AI-provider integration, AI processing and derived analytics; Java retains authoritative business rules and transactions. Introduce the Python worker with the first concrete AI feature, not as a prerequisite for the core application. Python produces advisory findings, not approvals or transaction authority. OpenAI is a candidate, not a selected provider. Managed identity is the default; optional organization SSO provider/interoperability remains to be settled (OIDC proposed). JDBC/Flyway account persistence is implemented with external file-backed H2 for local development; a live PostgreSQL deployment and durable tenancy remain unverified/unimplemented respectively.
 
 The project will be designed around several architectural principles:
 
@@ -744,7 +746,7 @@ The project will be designed around several architectural principles:
 * Observable system behavior
 * Evidence-backed state transitions
 
-Backend technology direction is approved; provider choice, client storage/platform support, detailed policy precedence, recovery and offline defaults still require decisions. Implement one testable slice at a time; architecture approval is not a claim that these capabilities exist.
+Backend technology direction is approved; production managed onboarding, optional SSO provider choice, client storage/platform support, detailed policy precedence, recovery and offline defaults still require decisions. Implement one testable slice at a time; architecture approval is not a claim that these capabilities exist.
 
 ---
 

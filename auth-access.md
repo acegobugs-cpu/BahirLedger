@@ -1,25 +1,41 @@
 # Authentication, tenancy and configurable access
 
-Updated: 2026-10-03. Confirmed product constraints and security boundaries; not an implementation claim. See [decisions](decisions.md), [architecture](architecture.md) and [current backend scope](b/README.md). Development steps and verification history are kept in local-only records.
+Updated: 2026-10-03. Confirmed product constraints and security boundaries, with the implemented sign-in slice identified separately below. See [decisions](decisions.md), [architecture](architecture.md) and [current backend scope](b/README.md). Development steps and verification history are kept in local-only records.
 
 ## Confirmed account and organization model
 
-- Self-service organization creation is supported. An organization is an independent workspace/tenant, not a legal entity.
+- Self-service organization creation is an accepted product direction, not yet implemented. An organization is an independent workspace/tenant, not a legal entity.
 - One organization per application account; joining an existing organization is invite-only. An existing membership cannot silently move to or join another tenant. Organization creation must enforce the same single-membership invariant atomically.
-- Organization SSO is mandatory from the outset, including bootstrap. An established provider will be used; concrete provider is not chosen. OIDC is the proposed MVP protocol, not a promise of interoperability with every provider or SAML deployment.
+- **BahirLedger-managed identity is the default; organization SSO is optional.** Managed signup with verified email is planned, not implemented. Organization creation does not require an organization IdP. This supersedes the earlier mandatory-SSO/no-local-auth decision; see [decision history](decisions.md#superseded-identity-decision--2026-10-03).
 - Personal devices only in the initial scope; shared-device and managed-fleet workflows are not assumed.
-- Stable external identity is the validated **issuer + subject** pair. Email changes, email matching and domain ownership do not confer membership or automatically link accounts. Provider migration/account recovery needs an explicit reviewed process.
+- Managed accounts have a stable application UUID. Future external identity is the validated **issuer + subject** pair. Linking must verify control of both identities; email changes, matching email or domain ownership do not confer membership or automatically link accounts. Provider migration/account recovery needs an explicit reviewed process.
+
+## Implemented sign-in only
+
+- Java directly authenticates email/password against JDBC accounts with BCrypt cost 12. Flyway manages account migrations. There is no separate authentication server, OIDC flow, cookie authentication, HTTP session or refresh token.
+- Explicit `local` profile provisioning requires all of `BAHIRLEDGER_DEV_EMAIL`, `BAHIRLEDGER_DEV_PASSWORD` and `BAHIRLEDGER_DEV_NAME`; no default application credentials. Existing normalized-email accounts are unchanged. The local H2 file lives outside the checkout and survives restart. PostgreSQL is the configured deployment target; live PostgreSQL has not been tested. Neither local provisioning nor a database schema is production registration.
+- Login returns an opaque bearer token and absolute 30-minute expiry. Flutter stores the raw token only in memory; backend memory holds only SHA-256 digests plus account/expiry. Backend restart invalidates sessions but retains durable accounts. `/me` does not renew expiry and returns identity only, **not organization/project membership or grants**.
+- Flutter confirms `/me` after login, enforces expiry by timer/resume checks and signs out on reload/restart. Web explicitly omits cookies, rejects redirects and disables request caching; native also rejects redirects. Logout clears local state first and warns if remote revocation is unconfirmed. Aborted login, failed identity lookup or app closure may leave a server session until expiry; local clearing is not confirmed remote revocation.
+- The separate local project demo grants no membership/permissions. Input limits, generic errors, bounded in-process throttling, no-store responses and fail-closed routing are implemented; they do not make this production-ready. See [API contract summary](api-design.md#implemented-managed-account-authentication), [backend setup/security limits](b/README.md) and [client behavior](ui/README.md).
+
+**Not implemented:** account registration, email verification, invitations, organization bootstrap/membership, password recovery/change, MFA, optional SSO/linking, durable distributed sessions/revocation/throttles, tenant/business APIs, full audit/abuse monitoring or offline security.
 
 ## Bootstrap and invitation boundary
 
-1. Organization creation enters a **restricted pending bootstrap session**. It can configure the proposed organization/provider but cannot read or mutate tenant domain data or exercise active owner authority.
-2. Select/configure a provider through a trusted registry. Validate issuer, discovery/JWKS endpoints, redirects and token parameters against reviewed configuration; do not accept arbitrary user-supplied issuer URLs or fetch arbitrary discovery endpoints.
-3. Verify control of the intended provider configuration and perform a successful test sign-in using that configuration. Email/domain possession alone is not sufficient proof. The provider-specific control proof and failed/abandoned-bootstrap recovery must be designed before implementation.
-4. Only then atomically activate the organization, initial owner membership and validated identity binding. Never grant tenant access merely because bootstrap or test login started.
+The following is planned production onboarding, not the local development provisioning mechanism:
+
+1. Create/verify a BahirLedger-managed account through a reviewed verified-email registration flow. Possessing an email address or completing login alone grants no tenant access.
+2. Organization creation enters a **restricted pending bootstrap session**. It can configure the proposed workspace but cannot read or mutate tenant domain data or exercise active owner authority. No organization IdP is required.
+3. Validate the verified account, controlled bootstrap conditions and single-organization invariant; design failed/abandoned-bootstrap recovery and abuse protections before release.
+4. Atomically activate the organization and initial owner membership. Never grant tenant access merely because registration or bootstrap started. Initial owner administration does not automatically grant financial/project approval permission.
 
 Invitations must bind to the intended organization and intended recipient identity through a verified redemption flow; include expiry, one-use consumption and revocation. The exact pre-sign-in recipient binding mechanism is still to be designed. Token possession or a matching email alone must not bypass identity verification. Check existing account membership and consume invitation/create membership in one transaction; reject replay, wrong recipient, expiry and cross-org membership races without partial membership.
 
-Flutter sign-in uses OAuth authorization code **with PKCE**, in the external system browser, with validated redirect URI and state/nonce. A native/public client carries **no app secret**. Validate token signature, issuer, audience and lifetime using the trusted provider configuration; do not accept an arbitrary token issuer as a new provider. Session/token storage and refresh/logout behavior must be threat-modeled for selected platforms. SSO authenticates identity, not application membership or project permissions.
+## Optional organization SSO — future
+
+Select/configure a provider through a trusted registry; validate issuer, discovery/JWKS endpoints, redirects and token parameters against reviewed configuration, never arbitrary user-supplied issuer URLs. Verify provider control and successful test sign-in before enabling the binding. Provider-specific control proof, failed enrollment, migration/recovery and whether/how an organization may enforce SSO require review; these are not gates on managed signup.
+
+OIDC is the proposed initial SSO protocol; no provider or universal SAML interoperability is selected. Future Flutter SSO would use external-browser OAuth authorization code **with PKCE**, validated redirect URI and state/nonce, and **no client secret**. Validate signature, issuer, audience and lifetime against trusted configuration. Linking needs explicit authenticated verification of both managed and external identities, not matching-email auto-linking. Review storage/refresh/logout behavior for that future flow separately from current bearer sessions. SSO authenticates identity, not application membership or project permissions.
 
 ## Policy, roles and delegation
 
@@ -35,7 +51,7 @@ Required evaluator decision boundary:
 - Ignore/reject a project override as defined by the tested contract unless the organization explicitly delegates that setting; retain mandatory restrictions.
 - Return a deterministic decision. A standalone internal evaluator does not by itself implement authenticated identities, durable roles, policy administration or complete application security.
 
-Policy administration needs versioning, effective-policy preview/explanations, bounded delegation and audit. **Detailed precedence** for multiple grants/denies, competing delegations and policy versions remains open; do not invent a universal allow-wins/deny-wins hierarchy. Recovery, last-owner protection, owner transfer and emergency access remain gates, not a hidden password bypass to mandatory SSO.
+Policy administration needs versioning, effective-policy preview/explanations, bounded delegation and audit. **Detailed precedence** for multiple grants/denies, competing delegations and policy versions remains open; do not invent a universal allow-wins/deny-wins hierarchy. Recovery, last-owner protection, owner transfer and emergency access remain gates; neither managed credentials nor optional SSO may bypass membership or effective authorization.
 
 Legacy UI review-before-preparation and rejection/amendment reasons are prototype behavior, **not universal domain rules**. Keep existing prototype regression behavior until a reviewed configurable workflow replaces it; do not encode those examples as mandatory server policy. See the [historical decisions](ui/docs/dec/decisions.md).
 
@@ -53,25 +69,25 @@ Revocation cannot reach a disconnected device until it reconnects; expiry/local 
 
 ## Open decisions before broader implementation
 
-- Concrete established provider; OIDC claims/discovery/logout/refresh interoperability; whether non-OIDC federation is deferred or brokered.
-- Provider-control proof, trusted-provider registration and bootstrap abandonment/recovery.
-- Exact invitation recipient binding and account/provider migration.
+- Managed registration/email verification, exact invitation recipient binding, durable tenancy/atomic bootstrap, password lifecycle/MFA, session hardening and abuse/audit controls.
+- Optional SSO provider; OIDC claims/discovery/logout/refresh interoperability; whether non-OIDC federation is deferred or brokered.
+- Provider-control proof, trusted-provider registration, explicit identity linking, account/provider migration and bootstrap abandonment/recovery.
 - Delegated-policy precedence, mandatory-rule representation, recovery and last-owner protection.
 - Accepted offline defaults/exceptions and encrypted pending-work recovery.
 
-These gates do not block a provider-independent scaffold/evaluator, but they block claiming complete authentication, tenant isolation or offline security.
+Optional-provider selection does not block managed signup design. These outstanding capabilities prevent any claim of complete production authentication, tenant isolation or offline security; the implemented sign-in slice does not satisfy them.
 
-## User-facing access journeys
+## Planned user-facing access journeys
 
-- **Create organization:** anyone may start registration; pending setup shows verification progress, failed SSO test or abandoned-setup recovery without tenant-data access. Activation establishes the first owner's scoped administrative authority, not automatic financial/project approval authority.
-- **Accept invitation:** show intended organization/access, authenticate through its SSO and explicitly accept. Explain wrong identity, revoked/expired/already-used invitation, suspended organization and existing-other-organization membership without leaking unrelated tenant data.
-- **Return/sign in:** discover organization by saved context or code, use SSO/MFA, then open an accessible project list. Distinguish expired session, missing membership, suspension and provider outage; do not lose saved drafts on reauthentication.
+- **Create organization:** start managed registration and verify email; pending setup shows verification or abandoned-setup recovery without tenant-data access and without requiring an IdP. Activation establishes the first owner's scoped administrative authority, not automatic financial/project approval authority. Optional SSO enrollment is a separate reviewed journey.
+- **Accept invitation:** show intended organization/access, verify the intended managed identity (or explicitly linked optional SSO identity) and accept. Explain wrong identity, revoked/expired/already-used invitation, suspended organization and existing-other-organization membership without leaking unrelated tenant data.
+- **Return/sign in:** use managed sign-in by default or configured optional SSO, then resolve membership/permissions before opening accessible projects. Distinguish expired session, missing membership, suspension and provider outage; do not lose saved drafts on reauthentication. Today only identity landing and separate demo exist, not this tenant journey.
 - **My Access:** show organization/project roles, available capabilities, inherited policy and grant source. Org membership alone does not imply every-project visibility. Roles are named permission bundles; administrators preview gained/lost access before saving versioned changes.
 - **Configure policies:** organization administrators set defaults, mandatory restrictions and delegable project overrides. Project administrators can edit only delegated settings. Membership administration does not silently grant approval-delegation power; no self-escalation beyond authorized scope.
 - **Review requests:** submitters see pending decisions and reasons/history. An approver sees only eligible work; assignment routes work but never grants approval permission. Check effective rules, amount limits where configured, current request version and authority when accepting the decision. Explain lost access or changed requests.
 - **Work offline:** distinguish saved locally, waiting to sync, accepted by server and needs attention. Recommended seven-day lease and five-minute local lock are separate; biometric/device-credential unlock does not renew online authorization. Sensitive financial/personal data is not downloaded by default; proposed longer field exceptions require explicit scope and authority.
-- **Sign out/lose access:** warn about unsynchronized work; offer sync first, cancel sign-out, or explicit discard confirmation according to policy. Suspend server access on revocation; refresh membership and manage local caches when the device reconnects. Preserve audit attribution after membership removal. Prevent unsafe last-owner removal and provide reviewed lost-device/SSO-recovery paths, not password bypasses.
+- **Sign out/lose access:** warn about unsynchronized work; offer sync first, cancel sign-out, or explicit discard confirmation according to policy. Suspend server access on revocation; refresh membership and manage local caches when the device reconnects. Preserve audit attribution after membership removal. Prevent unsafe last-owner removal and provide reviewed lost-device/account/SSO-recovery paths, not authorization bypasses. This future encrypted-work flow is separate from current memory-only token clearing.
 
-An organization is a group workspace, not necessarily a registered business: an NGO, company, government office, cooperative or community association can manage several projects. One organization per application account means no tenant switcher in the initial scope; whether one person may maintain separate accounts in different organizations remains to be settled. Mandatory SSO is a separate accepted constraint, not inherent in the organization concept; its onboarding cost for small groups must be considered.
+An organization is a group workspace, not necessarily a registered business: an NGO, company, government office, cooperative or community association can manage several projects. One organization per application account means no tenant switcher in the initial scope; whether one person may maintain separate accounts in different organizations remains to be settled. Managed onboarding avoids requiring small groups to operate an IdP; optional SSO does not change the tenant model.
 
 Organization-specific self-approval, permission administration and all-project versus selected-project authority remain configurable choices. Offline timings, online-by-default approvals and up-to-30-day exceptions remain recommendations, not accepted hardcoded policy. Permission/security administration is online-only in the proposed design; optional offline decision capture never implies final approval.

@@ -10,10 +10,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(AuthTestConfiguration.class)
 class BoundaryHttpTest {
     @LocalServerPort
     int port;
@@ -39,7 +41,7 @@ class BoundaryHttpTest {
         var response = client.send(request(path).GET().build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(response.headers().allValues("location")).isEmpty();
-        assertThat(response.body()).isEmpty();
+        assertThat(response.body()).isEqualTo("{\"code\":\"unauthorized\",\"message\":\"Authentication is required.\"}");
     }
 
     @Test
@@ -54,5 +56,16 @@ class BoundaryHttpTest {
         var response = client.send(request("/api/v1/health").POST(HttpRequest.BodyPublishers.noBody()).build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.headers().allValues("set-cookie")).isEmpty();
+    }
+
+    @Test
+    void corsHasNoDefaultOriginOutsideLocalProfile() throws Exception {
+        var response = client.send(request("/api/v1/auth/login").header("Origin", "http://localhost:8765")
+                .header("Access-Control-Request-Method", "POST")
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.headers().allValues("access-control-allow-origin")).isEmpty();
+        assertThat(response.headers().allValues("set-cookie")).isEmpty();
     }
 }

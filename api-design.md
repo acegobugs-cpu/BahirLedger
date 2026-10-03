@@ -1,6 +1,25 @@
 # API design and protocol decisions
 
-Updated: 2026-10-03. Approved direction, not implemented endpoint inventory. The [backend OpenAPI contract](b/src/main/resources/contracts/openapi.yaml) defines the current public surface; examples below are future designs and need contract review before implementation.
+Updated: 2026-10-03. The [backend OpenAPI contract](b/src/main/resources/contracts/openapi.yaml) defines the current public surface. The managed-auth section below describes implemented operations; other resource/sync/evidence examples are future designs and need contract review before implementation.
+
+## Implemented managed account authentication
+
+| Operation | Contract |
+| --- | --- |
+| `GET /api/v1/health` | Public liveness: `200 {status:"UP"}`; not database/tenant readiness |
+| `POST /api/v1/auth/login` | JSON `{email,password}` → `200 {accessToken,expiresAt,user:{id,email,displayName}}` |
+| `GET /api/v1/me` | Bearer authentication → `200 {id,email,displayName}`; no membership or grants |
+| `POST /api/v1/auth/logout` | Bearer authentication → `204`; revokes that session |
+
+Java directly verifies BCrypt passwords (cost 12). The opaque token contains 32 random bytes encoded as base64url, not a JWT; `expiresAt` is absolute UTC, 30 minutes after issuance. Backend memory retains SHA-256 token digests with account ID/expiry and rechecks active accounts in JDBC. No refresh, sliding expiry, authentication server, OIDC or cookies/HTTP sessions. Backend restart invalidates sessions, not durable accounts.
+
+Flutter keeps the token only in memory, sends it only as `Authorization: Bearer …`, and completes sign-in only after `/me` confirms the same account ID. Web Fetch uses `credentials: omit`, `cache: no-store` and rejects redirects; native also rejects redirects. Logout clears local state before attempting remote revocation; failures warn that the remote session may survive until expiry. Reload/restart signs out locally, not necessarily remotely. Requests time out after 15 seconds without automatic retry/refresh.
+
+Login validation returns `400`; wrong email/password or inactive account returns the same generic `401` credentials error; bounded per-process throttling/concurrency/session capacity returns `429`. Authentication failures, forbidden operations, database failures and unexpected controller failures have sanitized `{code,message}` responses (`401`, `403`, `503`, `500` respectively). Auth/identity responses, including errors, use `Cache-Control: no-store`. See [backend details](b/README.md) for body/credential bounds and limits.
+
+Only these exact methods/routes and allowed preflights are enabled. CORS permits one configured exact loopback HTTP(S) origin with port, never wildcard/credentialed access; the local default is `http://localhost:8765`, otherwise cross-origin access defaults off. CSRF exemptions apply only to POST login/logout, not arbitrary writes. Non-loopback browser deployment needs a reviewed CORS policy; the current configuration is not production web certification.
+
+Current account provisioning is opt-in and local-profile-only; **no signup, email-verification, invitation, organization/member, password-recovery or business endpoints exist**. Managed signup with verified email is planned as the default; optional SSO is separate future work and cannot email-auto-link identities. Account authentication never implies tenant access. See [auth/access](auth-access.md).
 
 ## Protocol selection
 
