@@ -23,7 +23,7 @@ public class AuthService {
         dummyHash = encoder.encode(UUID.randomUUID().toString());
     }
 
-    public SigninResponse signin(SigninRequest request) {
+    public RegisterResponse register(RegisterRequest request) {
         throttle.checkEmail(request.email());
         if (!passwordWork.tryAcquire()) throw ApiException.throttled();
         try {
@@ -31,7 +31,7 @@ public class AuthService {
             if (account.isPresent()) throw ApiException.conflict();
             var user = accounts.create(request.email(), request.displayName(), encoder.encode(request.password()));
             var issued = sessions.issue(user.id());
-            return new SigninResponse(issued.accessToken(), issued.expiresAt(), user);
+            return new RegisterResponse(issued.accessToken(), issued.expiresAt(), user);
         } finally {
             passwordWork.release();
         }
@@ -56,7 +56,7 @@ public class AuthService {
         @Override public String toString() { return "LoginResponse[REDACTED]"; }
     }
 
-    public record SigninResponse(String accessToken, java.time.Instant expiresAt, UserView user) {
-        @Override public String toString() { return "SigninResponse[REDACTED]"; }
+    public record RegisterResponse(String accessToken, java.time.Instant expiresAt, UserView user) {
+        @Override public String toString() { return "RegisterResponse[REDACTED]"; }
     }
 }

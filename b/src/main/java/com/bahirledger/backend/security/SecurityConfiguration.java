@@ -73,6 +73,7 @@ public class SecurityConfiguration {
         cors.setAllowCredentials(false);
         cors.setMaxAge(600L);
         source.registerCorsConfiguration("/api/v1/auth/login", cors);
+        source.registerCorsConfiguration("/api/v1/auth/register", cors);
         source.registerCorsConfiguration("/api/v1/auth/logout", cors);
         var readCors = new CorsConfiguration(cors);
         readCors.setAllowedMethods(List.of("GET"));
@@ -102,6 +103,8 @@ public class SecurityConfiguration {
             LoginThrottle throttle, CorsConfigurationSource corsConfigurationSource) throws Exception {
         RequestMatcher login = request -> request.getMethod().equals("POST")
                 && request.getServletPath().equals("/api/v1/auth/login");
+        RequestMatcher register = request -> request.getMethod().equals("POST")
+            && request.getServletPath().equals("/api/v1/auth/register");
         RequestMatcher logout = request -> request.getMethod().equals("POST")
                 && request.getServletPath().equals("/api/v1/auth/logout");
         var corsFilter = new CorsFilter(corsConfigurationSource);
@@ -120,7 +123,7 @@ public class SecurityConfiguration {
                 .addFilterAt(corsFilter, CorsFilter.class)
                 .authorizeHttpRequests(access -> access
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
-                        .requestMatchers(login).permitAll()
+                        .requestMatchers(login, register).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/me").authenticated()
                         .requestMatchers(logout).authenticated()
                         .anyRequest().denyAll())
@@ -130,7 +133,7 @@ public class SecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 // No ambient cookie authentication: only these exact POST routes bypass CSRF.
-                .csrf(csrf -> csrf.ignoringRequestMatchers(login, logout)
+                .csrf(csrf -> csrf.ignoringRequestMatchers(login, register, logout)
                         .csrfTokenRepository(new CsrfTokenRepository() {
                             // All other unsafe routes remain denied; never create an HTTP session/cookie.
                             @Override public CsrfToken generateToken(HttpServletRequest request) {

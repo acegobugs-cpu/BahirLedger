@@ -103,6 +103,55 @@ class AuthHttpTest {
         return send(request("/api/v1/me").header("Authorization", "Bearer " + token).GET());
     }
 
+        private HttpResponse<String> register(String body) throws Exception {
+        return send(request("/api/v1/auth/register").header("Origin", "http://localhost:8765")
+            .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)));
+        }
+
+        @Test
+        void registrationPreflightAndAnonymousPostReachController() throws Exception {
+        var preflight = send(request("/api/v1/auth/register").header("Origin", "http://localhost:8765")
+            .header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", "content-type")
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody()));
+        assertThat(preflight.statusCode()).isEqualTo(200);
+        assertThat(preflight.headers().firstValue("access-control-allow-origin")).hasValue("http://localhost:8765");
+        assertThat(preflight.headers().allValues("access-control-allow-credentials")).isEmpty();
+        String payload = json.writeValueAsString(Map.of("email", " NEW@Example.Test ",
+            "displayName", "New Person", "password", PASSWORD));
+        var response = register(payload);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("access-control-allow-origin")).hasValue("http://localhost:8765");
+        JsonNode body = json.readTree(response.body());
+        String token = body.get("accessToken").asString();
+        assertThat(token).matches("[A-Za-z0-9_-]{43}");
+        assertThat(body.get("user").get("email").asString()).isEqualTo("new@example.test");
+        var identity = me(token);
+        assertThat(identity.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(identity.body())).isEqualTo(body.get("user"));
+        assertThat(register(payload).statusCode()).isEqualTo(409);
+        assertThat(login("new@example.test", PASSWORD).statusCode()).isEqualTo(200);
+        }
+
+        @Test
+        void registrationRetainsOriginMethodBodyValidationAndSourceLimits() throws Exception {
+        assertThat(send(request("/api/v1/auth/register").header("Origin", "https://evil.example")
+            .header("Access-Control-Request-Method", "POST")
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(403);
+        assertThat(send(request("/api/v1/auth/register").header("Origin", "http://localhost:8765")
+            .header("Access-Control-Request-Method", "PATCH")
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(403);
+        assertThat(send(request("/api/v1/auth/register/")
+            .POST(HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(403);
+        assertThat(register(" ".repeat(4097)).statusCode()).isEqualTo(400);
+        assertThat(register(json.writeValueAsString(Map.of("email", "new@example.test",
+            "displayName", "New Person", "password", "é".repeat(37)))).statusCode()).isEqualTo(400);
+        clock.advance(Duration.ofMinutes(5));
+        for (int i = 0; i < 20; i++) assertThat(register("{}").statusCode()).isEqualTo(400);
+        assertThat(register("{}").statusCode()).isEqualTo(429);
+        assertThat(accounts.findByEmail("new@example.test")).isEmpty();
+        }
+
     @Test
     void loginAndMeHaveExactPublicContractAndAbsoluteUtcExpiry(CapturedOutput output) throws Exception {
         Instant now = clock.instant();

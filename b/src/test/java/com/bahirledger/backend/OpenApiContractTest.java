@@ -18,7 +18,7 @@ class OpenApiContractTest {
             Map<String, Object> document = new Yaml(new SafeConstructor(new LoaderOptions())).load(input);
             assertThat(document).containsEntry("openapi", "3.1.0");
             var paths = (Map<?, ?>) document.get("paths");
-            assertThat(paths.keySet()).isEqualTo(Set.of("/api/v1/health", "/api/v1/auth/login", "/api/v1/me", "/api/v1/auth/logout"));
+            assertThat(paths.keySet()).isEqualTo(Set.of("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/me", "/api/v1/auth/logout"));
             checkReferences(document, document);
         }
     }

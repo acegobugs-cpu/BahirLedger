@@ -4,10 +4,10 @@ info:
   version: 0.2.0
   description: >-
     BahirLedger-managed email/password sign-in is the default. Organization SSO is a
-    future optional feature, not an available login mode. Only login and process
+    future optional feature, not an available login mode. Registration, login and process
     liveness are public application operations. Listed browser CORS preflights are
     also permitted for the exact configured loopback origin. All other routes and
-    methods are denied. No membership, signup, refresh or business API is exposed.
+    methods are denied. No membership, email verification, refresh or business API is exposed.
     Use HTTPS outside loopback development. Clients must keep access tokens only
     in memory, including on web: never cookies, localStorage, URLs or logs.
 security:
@@ -118,6 +118,80 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      summary: Create a managed account and issue an account-only session
+      security: []
+      description: >-
+        Email is normalized as for login. Password is not trimmed. This exact POST
+        route is CSRF-exempt without cookie authentication and shares login's
+        source/email throttles, concurrency cap and 4096-byte body limit.
+        No email verification, organization membership or project access is granted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, displayName, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                displayName:
+                  type: string
+                  minLength: 1
+                  maxLength: 72
+                  description: Must not be blank.
+                password:
+                  type: string
+                  format: password
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 72
+                  description: Nonblank and at most 72 UTF-8 bytes.
+      responses:
+        '200':
+          description: Account created with a 30-minute session; no cookie or tenant grants
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, expiresAt, user]
+                properties:
+                  accessToken:
+                    type: string
+                    pattern: '^[A-Za-z0-9_-]{43}$'
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Email already registered
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: {code: conflict, message: 'Email is already registered.'}
+        '429':
+          $ref: '#/components/responses/Throttled'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/me:
     get:
       operationId: getCurrentUser
@@ -202,7 +276,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, invalid_credentials, unauthorized, forbidden, too_many_requests, service_unavailable, internal_error]
+          enum: [invalid_request, invalid_credentials, unauthorized, forbidden, conflict, too_many_requests, service_unavailable, internal_error]
         message:
           type: string
           description: Fixed generic message; never request values, credentials or exception details.

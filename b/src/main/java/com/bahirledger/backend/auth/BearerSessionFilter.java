@@ -38,7 +38,9 @@ public final class BearerSessionFilter extends OncePerRequestFilter {
         }
         HttpServletRequest filtered = request;
         try {
-            if (request.getMethod().equals("POST") && request.getServletPath().equals("/api/v1/auth/login")) {
+            if (request.getMethod().equals("POST")
+                    && (request.getServletPath().equals("/api/v1/auth/login")
+                        || request.getServletPath().equals("/api/v1/auth/register"))) {
                 // Never trust forwarded IP headers; bound parsing even for chunked bodies.
                 throttle.checkSource(request.getRemoteAddr());
                 byte[] body = request.getInputStream().readNBytes(4097);
