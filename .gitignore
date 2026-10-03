@@ -1,0 +1,3 @@
+# Local development context, execution plans, and review history only.
+# Durable product/architecture/access/API documentation belongs at the root.
+/docs/

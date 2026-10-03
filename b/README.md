@@ -2,7 +2,7 @@
 
 Java 21 / Spring Boot modular-monolith foundation. Flutter remains in the sibling ui directory.
 
-## Current scope: Step 02a
+## Current backend scope
 
 - `GET /api/v1/health` returns `{"status":"UP"}` (process liveness only).
 - All other HTTP requests are denied. No password login, generated development account, SSO, database, membership API or business endpoints exist yet.
@@ -23,6 +23,6 @@ Wrapper/build dependencies are downloaded on the first build. No credentials or 
 
 ## Direction and next gates
 
-PostgreSQL, REST/OpenAPI, explicit synchronization, OIDC federation, S3-compatible evidence storage, and Python background analysis are selected architectural directions, not currently running infrastructure. Provider selection, SSO onboarding/recovery, versioned policy administration and durable tenant isolation require subsequent reviewed increments.
+PostgreSQL, REST/OpenAPI, explicit synchronization, OIDC federation (proposed MVP interoperability), S3-compatible evidence storage, and Python AI/derived analytics are architectural directions, not currently running infrastructure. Java retains all authoritative business transactions and access enforcement. Python owns AI-provider integration and derived processing when the first AI feature is implemented; OpenAI and concrete Python framework/broker choices are not selected. Provider selection, SSO onboarding/recovery, versioned policy administration and durable tenant isolation require subsequent reviewed increments.
 
-Root docs are local-only planning notes; the parent [README](../README.md) records the shared product direction. Do not place tokens, SSO secrets, or production data in this repository.
+Shared version-controlled specifications: [architecture](../architecture.md), [API design](../api-design.md), [AI/data ownership](../ai-analytics.md), [auth/access](../auth-access.md), [decisions](../decisions.md), and [product vision](../product-vision.md). The parent [README](../README.md) is the application entry point. Only the root `docs/` directory contains local-only development plans and progress. Do not place tokens, SSO secrets, or production data in this repository.
